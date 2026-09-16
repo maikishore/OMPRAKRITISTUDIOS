@@ -155,3 +155,49 @@ class AssetService:
         asset.is_approved = True
         db.commit()
         return True
+
+    @staticmethod
+    def delete_asset(db: Session, asset_id: str) -> bool:
+        """Deletes an asset from DB, disk, and unlinks it from characters, locations, or shots."""
+        from pathlib import Path
+        from core.models import Character, Location, Shot
+        from core.enums import ShotStatus
+
+        asset = db.query(Asset).filter(Asset.id == asset_id).first()
+        if not asset:
+            return False
+
+        # 1. Unlink from characters
+        chars = db.query(Character).filter(Character.master_reference_asset_id == asset_id).all()
+        for c in chars:
+            c.master_reference_asset_id = None
+            c.is_approved = False
+
+        # 2. Unlink from locations
+        locs = db.query(Location).filter(Location.master_reference_asset_id == asset_id).all()
+        for l in locs:
+            l.master_reference_asset_id = None
+            l.is_approved = False
+
+        # 3. Unlink from shots
+        shots = db.query(Shot).all()
+        for sh in shots:
+            if sh.reference_asset_ids and asset_id in sh.reference_asset_ids:
+                updated_refs = [r for r in sh.reference_asset_ids if r != asset_id]
+                sh.reference_asset_ids = updated_refs
+                if not updated_refs and sh.status == ShotStatus.KEYFRAME_READY.value:
+                    sh.status = ShotStatus.DRAFT.value
+
+        # 4. Remove physical file from disk if present
+        if asset.file_path:
+            try:
+                p = Path(asset.file_path)
+                if p.exists():
+                    p.unlink()
+            except Exception:
+                pass
+
+        # 5. Remove DB row
+        db.delete(asset)
+        db.commit()
+        return True

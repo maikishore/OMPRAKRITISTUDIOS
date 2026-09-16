@@ -140,6 +140,10 @@ def render_images_page():
                         if master_asset and Path(master_asset.file_path).exists():
                             st.image(master_asset.file_path, caption=f"⭐ APPROVED MASTER FACE: {character.name}", use_container_width=True)
                             st.success("✅ This image is active as the master reference for IP-Adapter face locking.")
+                            if st.button("🗑️ Delete Master Reference", key=f"del_master_char_{master_asset.id}"):
+                                AssetService.delete_asset(db, master_asset.id)
+                                st.success(f"Deleted master reference for {character.name}.")
+                                st.rerun()
                         else:
                             st.warning("⚠️ No approved master reference asset set for this character.")
 
@@ -147,17 +151,24 @@ def render_images_page():
                         recent_char_assets = db.query(Asset).filter(
                             Asset.project_id == project.id,
                             Asset.type == AssetType.CHARACTER_REFERENCE.value
-                        ).order_by(Asset.created_at.desc()).limit(4).all() if characters else []
+                        ).order_by(Asset.created_at.desc()).limit(6).all() if characters else []
 
                         if recent_char_assets:
                             st.markdown("##### Candidate Reference Images")
                             for cand in recent_char_assets:
                                 if Path(cand.file_path).exists():
                                     st.image(cand.file_path, width=220)
-                                    if st.button(f"⭐ Set as Master Reference ({cand.id[:8]})", key=f"set_master_char_{cand.id}"):
-                                        AssetService.set_character_master_reference(db, character.id, cand.id)
-                                        st.success(f"Locked {character.name}'s master face to asset `{cand.id[:8]}`!")
-                                        st.rerun()
+                                    cand_b1, cand_b2 = st.columns([3, 1])
+                                    with cand_b1:
+                                        if st.button(f"⭐ Set Master ({cand.id[:6]})", key=f"set_master_char_{cand.id}"):
+                                            AssetService.set_character_master_reference(db, character.id, cand.id)
+                                            st.success(f"Locked {character.name}'s master face to asset `{cand.id[:8]}`!")
+                                            st.rerun()
+                                    with cand_b2:
+                                        if st.button("🗑️", key=f"del_char_cand_{cand.id}", help="Delete this image"):
+                                            AssetService.delete_asset(db, cand.id)
+                                            st.success(f"Deleted asset {cand.id[:6]}.")
+                                            st.rerun()
 
         # -------------------------------------------------------------
         # TAB 2: LOCATION MASTER REFERENCES
@@ -224,6 +235,10 @@ def render_images_page():
                         if master_loc_asset and Path(master_loc_asset.file_path).exists():
                             st.image(master_loc_asset.file_path, caption=f"⭐ APPROVED MASTER ENVIRONMENT: {loc.name}", use_container_width=True)
                             st.success("✅ This image is active as the master environment reference.")
+                            if st.button("🗑️ Delete Master Reference", key=f"del_master_loc_{master_loc_asset.id}"):
+                                AssetService.delete_asset(db, master_loc_asset.id)
+                                st.success(f"Deleted master location reference for {loc.name}.")
+                                st.rerun()
                         else:
                             st.warning("⚠️ No approved master reference asset set for this location.")
 
@@ -231,17 +246,24 @@ def render_images_page():
                         recent_loc_assets = db.query(Asset).filter(
                             Asset.project_id == project.id,
                             Asset.type == AssetType.LOCATION_REFERENCE.value
-                        ).order_by(Asset.created_at.desc()).limit(4).all() if locations else []
+                        ).order_by(Asset.created_at.desc()).limit(6).all() if locations else []
 
                         if recent_loc_assets:
                             st.markdown("##### Candidate Location Images")
                             for cand in recent_loc_assets:
                                 if Path(cand.file_path).exists():
                                     st.image(cand.file_path, width=220)
-                                    if st.button(f"⭐ Set as Master Reference ({cand.id[:8]})", key=f"set_master_loc_{cand.id}"):
-                                        AssetService.set_location_master_reference(db, loc.id, cand.id)
-                                        st.success(f"Locked {loc.name}'s master environment to asset `{cand.id[:8]}`!")
-                                        st.rerun()
+                                    cand_l1, cand_l2 = st.columns([3, 1])
+                                    with cand_l1:
+                                        if st.button(f"⭐ Set Master ({cand.id[:6]})", key=f"set_master_loc_{cand.id}"):
+                                            AssetService.set_location_master_reference(db, loc.id, cand.id)
+                                            st.success(f"Locked {loc.name}'s master environment to asset `{cand.id[:8]}`!")
+                                            st.rerun()
+                                    with cand_l2:
+                                        if st.button("🗑️", key=f"del_loc_cand_{cand.id}", help="Delete this image"):
+                                            AssetService.delete_asset(db, cand.id)
+                                            st.success(f"Deleted asset {cand.id[:6]}.")
+                                            st.rerun()
 
         # -------------------------------------------------------------
         # TAB 3: SHOT KEYFRAMES (FACE-LOCKED)
@@ -333,6 +355,10 @@ def render_images_page():
                             if linked_kf and Path(linked_kf.file_path).exists():
                                 st.image(linked_kf.file_path, caption=f"Keyframe: Scene {active_scene.scene_number:02d} - Shot {shot.shot_number:02d} ({shot.status})", use_container_width=True)
                                 st.success(f"✅ Shot status: **{shot.status}**")
+                                if st.button("🗑️ Delete Shot Keyframe", key=f"del_shot_kf_{linked_kf.id}"):
+                                    AssetService.delete_asset(db, linked_kf.id)
+                                    st.success(f"Deleted keyframe and reset Shot {shot.shot_number:02d} to Draft.")
+                                    st.rerun()
                             else:
                                 st.warning("No keyframe generated for this shot yet.")
 
@@ -369,8 +395,15 @@ def render_images_page():
                                 st.write(f"**Prompt:** {asset.prompt}")
                                 st.write(f"**Model:** {asset.model} ({asset.provider})")
                                 st.write(f"**Seed:** {asset.seed} | **Resolution:** {asset.width}x{asset.height}")
+                            if st.button("🗑️ Delete Asset", key=f"del_gal_asset_{asset.id}", use_container_width=True):
+                                AssetService.delete_asset(db, asset.id)
+                                st.success(f"Deleted asset `{asset.id[:8]}`.")
+                                st.rerun()
                         else:
                             st.caption(f"Asset `{asset.id[:8]}` (File missing on disk)")
+                            if st.button("🗑️ Clean Orphan DB Record", key=f"del_orphan_{asset.id}", use_container_width=True):
+                                AssetService.delete_asset(db, asset.id)
+                                st.rerun()
 
 if __name__ == "__main__":
     render_images_page()

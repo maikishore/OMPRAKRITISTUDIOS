@@ -43,13 +43,24 @@ with get_db_session() as db:
                     st.image(asset.file_path, use_container_width=True)
                     st.markdown(f"**{asset.type.upper()}** (`{asset.id[:8]}`)")
                     st.caption(f"Model: {asset.model} | Approved: {'✅' if asset.is_approved else '❌'}")
-                    with open(asset.file_path, "rb") as file:
-                        st.download_button(
-                            label="⬇️ Download Asset",
-                            data=file,
-                            file_name=Path(asset.file_path).name,
-                            mime=asset.mime_type,
-                            key=f"dl_{asset.id}"
-                        )
+                    act_col1, act_col2 = st.columns([2, 1])
+                    with act_col1:
+                        with open(asset.file_path, "rb") as file:
+                            st.download_button(
+                                label="⬇️ Download",
+                                data=file,
+                                file_name=Path(asset.file_path).name,
+                                mime=asset.mime_type,
+                                key=f"dl_{asset.id}",
+                                use_container_width=True
+                            )
+                    with act_col2:
+                        if st.button("🗑️ Delete", key=f"del_lib_{asset.id}", use_container_width=True):
+                            AssetService.delete_asset(db, asset.id)
+                            st.success(f"Deleted `{asset.id[:8]}`")
+                            st.rerun()
                 else:
                     st.warning(f"File missing on disk: `{asset.file_path}`")
+                    if st.button("🗑️ Clean Record", key=f"del_lib_orphan_{asset.id}"):
+                        AssetService.delete_asset(db, asset.id)
+                        st.rerun()
