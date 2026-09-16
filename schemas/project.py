@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, Field, ConfigDict
-from ..core.enums import ProjectStatus
+from core.enums import ProjectStatus
 
 class ProjectBase(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)

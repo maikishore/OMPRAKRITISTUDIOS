@@ -1,7 +1,7 @@
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from .models import Asset
-from ..schemas.asset import AssetCreate
+from schemas.asset import AssetCreate
 
 class AssetService:
     @staticmethod

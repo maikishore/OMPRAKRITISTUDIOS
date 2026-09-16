@@ -1,5 +1,5 @@
 from pathlib import Path
-from ..core.config import settings
+from core.config import settings
 
 class StoragePaths:
     @staticmethod

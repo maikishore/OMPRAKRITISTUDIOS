@@ -1,19 +1,25 @@
+import sys
+from pathlib import Path
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from OMVERSION.core.database import Base
-from OMVERSION.core.models import Project, Story, Character, Location, Scene, Shot, Asset, GenerationJob
-from OMVERSION.core.enums import ProjectStatus, AssetType, JobStatus, JobType
-from OMVERSION.core.project_service import ProjectService
-from OMVERSION.core.asset_service import AssetService
-from OMVERSION.core.job_service import JobService
-from OMVERSION.schemas.project import ProjectCreate, ProjectUpdate
-from OMVERSION.schemas.story import StorySchema
-from OMVERSION.schemas.character import CharacterBase
-from OMVERSION.schemas.asset import AssetCreate
-from OMVERSION.schemas.job import JobCreate
-from OMVERSION.storage.paths import StoragePaths
-from OMVERSION.storage.object_store import LocalObjectStore
+from core.database import Base
+from core.models import Project, Story, Character, Location, Scene, Shot, Asset, GenerationJob
+from core.enums import ProjectStatus, AssetType, JobStatus, JobType
+from core.project_service import ProjectService
+from core.asset_service import AssetService
+from core.job_service import JobService
+from schemas.project import ProjectCreate, ProjectUpdate
+from schemas.story import StorySchema
+from schemas.character import CharacterBase
+from schemas.asset import AssetCreate
+from schemas.job import JobCreate
+from storage.paths import StoragePaths
+from storage.object_store import LocalObjectStore
 
 @pytest.fixture
 def db_session():

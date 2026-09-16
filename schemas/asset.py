@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field, ConfigDict
-from ..core.enums import AssetType
+from core.enums import AssetType
 
 class AssetCreate(BaseModel):
     project_id: str

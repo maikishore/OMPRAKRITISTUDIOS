@@ -3,7 +3,7 @@ from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 from .models import GenerationJob
 from .enums import JobStatus
-from ..schemas.job import JobCreate
+from schemas.job import JobCreate
 
 def utc_now():
     return datetime.now(timezone.utc)

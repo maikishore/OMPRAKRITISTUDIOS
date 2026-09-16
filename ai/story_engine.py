@@ -1,11 +1,11 @@
 import logging
 from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
-from ..core.models import Story, Project
-from ..core.enums import ProjectStatus
-from ..schemas.story import StorySchema
+from core.models import Story, Project
+from core.enums import ProjectStatus
+from schemas.story import StorySchema
 from .llm_client import LLMClient
-from ..prompts.story.story_prompt import get_story_generation_system_prompt, get_story_generation_user_prompt
+from prompts.story.story_prompt import get_story_generation_system_prompt, get_story_generation_user_prompt
 
 logger = logging.getLogger("microdrama.story_engine")
 

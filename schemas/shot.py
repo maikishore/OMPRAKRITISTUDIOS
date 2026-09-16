@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional, List
 from pydantic import BaseModel, Field, ConfigDict
-from ..core.enums import ShotStatus
+from core.enums import ShotStatus
 
 class ShotBase(BaseModel):
     shot_number: int = Field(..., ge=1)

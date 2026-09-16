@@ -3,7 +3,7 @@ import re
 import httpx
 import logging
 from typing import Dict, Any, List, Optional
-from ..core.config import settings
+from core.config import settings
 
 logger = logging.getLogger("microdrama.llm_client")
 

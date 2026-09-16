@@ -1,7 +1,15 @@
+import sys
+from pathlib import Path
+
+# Ensure OMVERSION root is in Python sys.path
+ROOT_DIR = Path(__file__).resolve().parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 import streamlit as st
 from core.database import init_db, ScopedSession
 from core.project_service import ProjectService
-from core.schemas.project import ProjectCreate
+from schemas.project import ProjectCreate
 import core.enums as enums
 
 # Set page config with modern cinematic theme

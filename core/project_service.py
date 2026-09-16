@@ -2,7 +2,7 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 from .models import Project
 from .enums import ProjectStatus
-from ..schemas.project import ProjectCreate, ProjectUpdate
+from schemas.project import ProjectCreate, ProjectUpdate
 
 class ProjectService:
     @staticmethod

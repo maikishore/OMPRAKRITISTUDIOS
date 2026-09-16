@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field, ConfigDict
-from ..core.enums import JobStatus, JobType
+from core.enums import JobStatus, JobType
 
 class JobCreate(BaseModel):
     project_id: str
