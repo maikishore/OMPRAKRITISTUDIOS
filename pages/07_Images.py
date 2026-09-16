@@ -18,6 +18,7 @@ from core.asset_service import AssetService
 from providers.image.factory import get_image_provider
 from providers.image.base import ImageGenerationRequest
 from core.enums import AssetType, ShotStatus
+from core.models import Asset
 
 st.set_page_config(page_title="Image Generation & Asset Gallery | MicroDrama Studio", page_icon="🖼️", layout="wide")
 
@@ -143,10 +144,10 @@ def render_images_page():
                             st.warning("⚠️ No approved master reference asset set for this character.")
 
                         # Show recent candidate portraits
-                        recent_char_assets = db.query(AssetService.get_asset(db, character.id).__class__).filter(
-                            AssetService.get_asset(db, character.id).__class__.project_id == project.id,
-                            AssetService.get_asset(db, character.id).__class__.type == AssetType.CHARACTER_REFERENCE.value
-                        ).order_by(AssetService.get_asset(db, character.id).__class__.created_at.desc()).limit(3).all() if characters else []
+                        recent_char_assets = db.query(Asset).filter(
+                            Asset.project_id == project.id,
+                            Asset.type == AssetType.CHARACTER_REFERENCE.value
+                        ).order_by(Asset.created_at.desc()).limit(4).all() if characters else []
 
                         if recent_char_assets:
                             st.markdown("##### Candidate Reference Images")
@@ -225,6 +226,22 @@ def render_images_page():
                             st.success("✅ This image is active as the master environment reference.")
                         else:
                             st.warning("⚠️ No approved master reference asset set for this location.")
+
+                        # Show recent candidate location stills
+                        recent_loc_assets = db.query(Asset).filter(
+                            Asset.project_id == project.id,
+                            Asset.type == AssetType.LOCATION_REFERENCE.value
+                        ).order_by(Asset.created_at.desc()).limit(4).all() if locations else []
+
+                        if recent_loc_assets:
+                            st.markdown("##### Candidate Location Images")
+                            for cand in recent_loc_assets:
+                                if Path(cand.file_path).exists():
+                                    st.image(cand.file_path, width=220)
+                                    if st.button(f"⭐ Set as Master Reference ({cand.id[:8]})", key=f"set_master_loc_{cand.id}"):
+                                        AssetService.set_location_master_reference(db, loc.id, cand.id)
+                                        st.success(f"Locked {loc.name}'s master environment to asset `{cand.id[:8]}`!")
+                                        st.rerun()
 
         # -------------------------------------------------------------
         # TAB 3: SHOT KEYFRAMES (FACE-LOCKED)
