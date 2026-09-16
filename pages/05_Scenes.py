@@ -14,6 +14,8 @@ from core.scene_service import SceneService
 from core.shot_service import ShotService
 from schemas.scene import SceneCreate
 from ai.scene_engine import SceneEngine
+from ai.shot_engine import ShotEngine
+from ai.image_prompt_engine import PromptCompiler
 from core.enums import ProjectStatus
 
 st.set_page_config(page_title="Scenes Breakdown | MicroDrama Studio", page_icon="🎬", layout="wide")
