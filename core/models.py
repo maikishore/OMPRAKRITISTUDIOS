@@ -115,6 +115,19 @@ class Character(Base):
 
     project = relationship("Project", back_populates="characters")
 
+    @property
+    def visual_anchor_prompt(self) -> str:
+        return self.identity_prompt or self.appearance or ""
+
+    @property
+    def signature_costume(self) -> str:
+        return self.clothing or ""
+
+    @property
+    def physical_traits(self) -> str:
+        traits = [self.appearance or "", self.hair or "", self.face or "", self.body or "", self.skin or ""]
+        return ", ".join([t for t in traits if t])
+
 
 class Location(Base):
     __tablename__ = "locations"
@@ -138,6 +151,10 @@ class Location(Base):
     updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
 
     project = relationship("Project", back_populates="locations")
+
+    @property
+    def visual_anchor_prompt(self) -> str:
+        return self.visual_identity or self.description or ""
 
 
 class VisualStyle(Base):

@@ -61,6 +61,10 @@ class LLMClient:
         raw_response = self.generate_chat(augmented_system, user_prompt)
         return self._extract_json(raw_response)
 
+    def generate_json(self, system_prompt: str, user_prompt: str) -> Dict[str, Any]:
+        """Alias for generate_structured_json."""
+        return self.generate_structured_json(system_prompt, user_prompt)
+
     @staticmethod
     def _extract_json(text: str) -> Dict[str, Any]:
         """Extracts and parses JSON from potentially noisy LLM outputs."""

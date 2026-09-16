@@ -79,27 +79,27 @@ def render_shots_page():
 
         # Prepare bible dictionaries for compilation
         style_dict = {
-            "cinematic_realism": style.cinematic_realism,
-            "contrast": style.contrast,
-            "film_grain": style.film_grain,
-            "depth_of_field": style.depth_of_field,
-            "lighting_language": style.lighting_language
-        } if style else {}
+            "cinematic_realism": getattr(style, "cinematic_realism", "") if style else "",
+            "contrast": getattr(style, "contrast", "") if style else "",
+            "film_grain": getattr(style, "film_grain", "") if style else "",
+            "depth_of_field": getattr(style, "depth_of_field", "") if style else "",
+            "lighting_language": getattr(style, "lighting_language", "") if style else ""
+        }
 
         loc_dict = {
-            "name": loc.name,
-            "architecture": loc.architecture,
-            "materials": loc.materials,
-            "lighting": loc.lighting,
-            "visual_anchor_prompt": loc.visual_anchor_prompt
-        } if loc else {}
+            "name": getattr(loc, "name", "Interior") if loc else "Interior",
+            "architecture": getattr(loc, "architecture", "") if loc else "",
+            "materials": getattr(loc, "materials", "") if loc else "",
+            "lighting": getattr(loc, "lighting", "") if loc else "",
+            "visual_anchor_prompt": getattr(loc, "visual_anchor_prompt", getattr(loc, "visual_identity", "")) if loc else ""
+        }
 
         chars_list = [
             {
                 "name": c.name,
-                "signature_costume": c.signature_costume,
-                "physical_traits": c.physical_traits,
-                "visual_anchor_prompt": c.visual_anchor_prompt
+                "signature_costume": getattr(c, "signature_costume", getattr(c, "clothing", "")),
+                "physical_traits": getattr(c, "physical_traits", getattr(c, "appearance", "")),
+                "visual_anchor_prompt": getattr(c, "visual_anchor_prompt", getattr(c, "identity_prompt", ""))
             }
             for c in characters
         ]
