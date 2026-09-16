@@ -8,9 +8,17 @@ load_dotenv(BASE_DIR / ".env")
 
 class Settings:
     BASE_DIR: Path = BASE_DIR
-    DATABASE_URL: str = os.getenv("DATABASE_URL", f"sqlite:///{BASE_DIR}/storage/data/microdrama.db")
-    STORAGE_ROOT: Path = Path(os.getenv("STORAGE_ROOT", str(BASE_DIR / "storage" / "media")))
     DATA_DIR: Path = BASE_DIR / "storage" / "data"
+    STORAGE_ROOT: Path = Path(os.getenv("STORAGE_ROOT", str(BASE_DIR / "storage" / "media")))
+
+    # Resolve DATABASE_URL safely to absolute path if SQLite
+    raw_db_url = os.getenv("DATABASE_URL", "")
+    if not raw_db_url or "sqlite" in raw_db_url:
+        # Guarantee absolute path inside OMVERSION/storage/data/
+        db_file = BASE_DIR / "storage" / "data" / "microdrama.db"
+        DATABASE_URL: str = f"sqlite:///{db_file}"
+    else:
+        DATABASE_URL: str = raw_db_url
 
     LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "cloudflare")
     LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")

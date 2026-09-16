@@ -6,6 +6,9 @@ from .config import settings
 def generate_uuid() -> str:
     return str(uuid.uuid4())
 
+# Ensure storage directories exist prior to database connection
+settings.ensure_directories()
+
 # Configure Engine
 connect_args = {}
 if settings.DATABASE_URL.startswith("sqlite"):

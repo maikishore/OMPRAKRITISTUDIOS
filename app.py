@@ -69,6 +69,19 @@ def render_sidebar():
     db = ScopedSession()
     try:
         projects = ProjectService.list_projects(db)
+        if not projects:
+            # Auto-seed the benchmark project on fresh database
+            seed_proj = ProjectService.create_project(
+                db,
+                ProjectCreate(
+                    title="After Closing",
+                    genre="Horror",
+                    target_duration_seconds=600,
+                    logline="Trapped in a shopping mall after closing, Lucy and David must complete broadcast games only to discover the trials are transforming them into mannequins."
+                )
+            )
+            projects = [seed_proj]
+
         project_options = {p.id: f"{p.title} ({p.genre})" for p in projects}
 
         if "current_project_id" not in st.session_state and projects:
