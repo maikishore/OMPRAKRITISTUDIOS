@@ -12,9 +12,9 @@ class Settings:
     STORAGE_ROOT: Path = Path(os.getenv("STORAGE_ROOT", str(BASE_DIR / "storage" / "media")))
     DATA_DIR: Path = BASE_DIR / "storage" / "data"
 
-    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "openai")
+    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "cloudflare")
     LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
-    LLM_MODEL: str = os.getenv("LLM_MODEL", "gpt-4o")
+    LLM_MODEL: str = os.getenv("LLM_MODEL", "@cf/google/gemma-4-26b-a4b-it")
 
     CLOUDFLARE_ACCOUNT_ID: str = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
     CLOUDFLARE_AUTH_TOKEN: str = os.getenv("CLOUDFLARE_AUTH_TOKEN", "")
