@@ -61,9 +61,21 @@ class Story(Base):
 
     is_approved = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utc_now, nullable=False)
-    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False)
-
     project = relationship("Project", back_populates="story")
+
+    @property
+    def structured_data(self) -> dict:
+        return {
+            "premise": self.premise,
+            "theme": self.theme,
+            "tone": self.tone,
+            "synopsis": self.synopsis,
+            "ending": self.ending,
+            "story_rules": self.story_rules or [],
+            "acts": self.acts or [],
+            "clues": self.clues or [],
+            "continuity_rules": self.continuity_rules or []
+        }
 
 
 class Character(Base):
