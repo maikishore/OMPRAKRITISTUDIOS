@@ -34,8 +34,13 @@ def render_scenes_page():
             return
 
         # Project selector
+        current_pid = st.session_state.get("current_project_id")
+        project_ids = [p.id for p in projects]
+        default_idx = project_ids.index(current_pid) if current_pid in project_ids else 0
+
         project_options = {p.id: f"{p.title} ({p.genre}) - [{p.status}]" for p in projects}
-        selected_id = st.sidebar.selectbox("Active Project", options=list(project_options.keys()), format_func=lambda x: project_options[x])
+        selected_id = st.sidebar.selectbox("Active Project", options=project_ids, index=default_idx, format_func=lambda x: project_options[x])
+        st.session_state["current_project_id"] = selected_id
         project = ProjectService.get_project(db, selected_id)
         if not project:
             return

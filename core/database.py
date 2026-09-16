@@ -25,12 +25,23 @@ SessionFactory = sessionmaker(bind=engine, autoflush=False, autocommit=False, ex
 ScopedSession = scoped_session(SessionFactory)
 Base = declarative_base()
 
+from contextlib import contextmanager
+
+@contextmanager
+def get_db_session():
+    """Context manager for obtaining a database session."""
+    db = ScopedSession()
+    try:
+        yield db
+    finally:
+        ScopedSession.remove()
+
 def get_db():
     db = ScopedSession()
     try:
         yield db
     finally:
-        db.close()
+        ScopedSession.remove()
 
 def init_db():
     # Import all models to ensure they are registered with Base.metadata
