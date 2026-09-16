@@ -34,6 +34,11 @@ class LocationService:
         return db.query(Location).filter(Location.project_id == project_id).all()
 
     @staticmethod
+    def list_locations_by_project(db: Session, project_id: str) -> List[Location]:
+        """Alias for list_project_locations."""
+        return db.query(Location).filter(Location.project_id == project_id).all()
+
+    @staticmethod
     def update_location(db: Session, location_id: str, data: LocationUpdate) -> Optional[Location]:
         location = LocationService.get_location(db, location_id)
         if not location:

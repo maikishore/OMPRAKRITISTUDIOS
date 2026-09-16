@@ -44,6 +44,11 @@ class CharacterService:
         return db.query(Character).filter(Character.project_id == project_id).all()
 
     @staticmethod
+    def list_characters_by_project(db: Session, project_id: str) -> List[Character]:
+        """Alias for list_project_characters."""
+        return db.query(Character).filter(Character.project_id == project_id).all()
+
+    @staticmethod
     def update_character(db: Session, character_id: str, data: CharacterUpdate) -> Optional[Character]:
         character = CharacterService.get_character(db, character_id)
         if not character:
