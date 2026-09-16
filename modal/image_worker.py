@@ -1,124 +1,137 @@
-"""Modal Serverless GPU Worker for FLUX.1 [dev] and Qwen/IP-Adapter Face Conditioning.
+"""Modal Serverless GPU Worker for FLUX Image Generation and Face Conditioning.
 
+Based on proven high-performance FLUX setup in OHM (flux_klein_modal.py).
 Deploy with: `modal deploy modal/image_worker.py`
-Run local test with: `modal run modal/image_worker.py`
 """
 
-import os
 import io
-import base64
-from typing import Optional, List, Dict, Any
+from typing import Optional
 
-# Modal configuration
 try:
     import modal
     app = modal.App("microdrama-studio-image")
 
-    # Define high-performance GPU image environment
+    # Define container image with diffusers & torch
     image_env = (
         modal.Image.debian_slim(python_version="3.11")
+        .apt_install("git")
         .pip_install(
-            "torch>=2.4.0",
-            "diffusers>=0.30.0",
-            "transformers>=4.44.0",
+            "git+https://github.com/huggingface/diffusers.git",
+            "transformers>=4.48.0",
             "accelerate>=0.33.0",
             "sentencepiece",
             "protobuf",
+            "numpy",
+            "torch",
             "pillow",
-            "fastapi[standard]"
+            "torchvision"
         )
+        .env({"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"})
     )
 
-    @app.cls(gpu="A10G", image=image_env, timeout=300, keep_warm=1)
+    # Optional HF secrets
+    secrets = []
+    try:
+        secrets.append(modal.Secret.from_name("huggingface-secret"))
+    except Exception:
+        pass
+
+    @app.cls(
+        image=image_env,
+        gpu="L4",
+        secrets=secrets,
+        timeout=600,
+        scaledown_window=300
+    )
     class FluxImageGenerator:
-        """Modal GPU Class running FLUX.1 [dev] with IP-Adapter / Reference conditioning."""
+        """Modal GPU Class running FLUX pipeline on L4 GPU with memory optimizations."""
 
         @modal.enter()
-        def load_models(self):
+        def load_model(self):
             import torch
-            from diffusers import FluxPipeline
 
-            print("🔥 Loading FLUX.1 [dev] model weights into GPU memory...")
-            model_id = "black-forest-labs/FLUX.1-schnell"  # or black-forest-labs/FLUX.1-dev with HF token
+            print("🔥 Loading FLUX pipeline on L4 GPU...")
             
+            # Try Flux2KleinPipeline first (4B parameters, optimal for 24GB L4)
             try:
-                self.pipe = FluxPipeline.from_pretrained(
-                    model_id,
+                from diffusers import Flux2KleinPipeline
+                print("Loading black-forest-labs/FLUX.2-klein-4B pipeline...")
+                self.pipe = Flux2KleinPipeline.from_pretrained(
+                    "black-forest-labs/FLUX.2-klein-4B",
                     torch_dtype=torch.bfloat16
-                ).to("cuda")
+                )
                 self.pipe.enable_model_cpu_offload()
-                print("✅ FLUX.1 model successfully loaded!")
+                print("✅ FLUX.2 Klein 4B loaded successfully!")
+                return
             except Exception as e:
-                print(f"⚠️ Model load note (mocking on local fallback if offline): {e}")
+                print(f"Note: Klein 4B load attempted ({e}), loading FLUX.1 with sequential CPU offload...")
+
+            # Fallback to FLUX.1 with sequential offload
+            try:
+                from diffusers import FluxPipeline
+                self.pipe = FluxPipeline.from_pretrained(
+                    "black-forest-labs/FLUX.1-schnell",
+                    torch_dtype=torch.bfloat16
+                )
+                self.pipe.enable_sequential_cpu_offload()
+                if hasattr(self.pipe, "vae"):
+                    self.pipe.vae.enable_slicing()
+                    self.pipe.vae.enable_tiling()
+                print("✅ FLUX.1 Schnell loaded with sequential CPU offload & VAE slicing!")
+            except Exception as e2:
+                print(f"⚠️ Model load fallback: {e2}")
                 self.pipe = None
 
         @modal.method()
-        def generate(
+        def generate_image(
             self,
             prompt: str,
-            negative_prompt: Optional[str] = None,
+            image_bytes: Optional[bytes] = None,
+            strength: float = 0.75,
+            num_inference_steps: int = 4,
+            guidance_scale: float = 3.5,
             width: int = 768,
             height: int = 1344,
-            steps: int = 4,
-            guidance_scale: float = 3.5,
-            seed: Optional[int] = None,
-            ref_image_base64: Optional[str] = None
-        ) -> Dict[str, Any]:
-            """Executes inference on Modal GPU."""
+            seed: int = 42
+        ) -> bytes:
+            """Executes Text-to-Image or Image-to-Image inference on Modal GPU."""
             import torch
             from PIL import Image
 
-            generator = None
-            if seed is not None:
-                generator = torch.Generator(device="cuda").manual_seed(seed)
+            generator = torch.Generator(device="cuda" if torch.cuda.is_available() else "cpu").manual_seed(seed)
 
             if self.pipe:
-                output = self.pipe(
-                    prompt=prompt,
-                    width=width,
-                    height=height,
-                    num_inference_steps=steps,
-                    guidance_scale=guidance_scale,
-                    generator=generator
-                ).images[0]
+                if image_bytes:
+                    print(f"Running Image-to-Image generation with prompt: {prompt[:80]}...")
+                    init_image = Image.open(io.BytesIO(image_bytes)).convert("RGB").resize((width, height))
+                    result = self.pipe(
+                        prompt=prompt,
+                        image=init_image,
+                        num_inference_steps=num_inference_steps,
+                        guidance_scale=guidance_scale,
+                        generator=generator
+                    ).images[0]
+                else:
+                    print(f"Running Text-to-Image generation with prompt: {prompt[:80]}...")
+                    result = self.pipe(
+                        prompt=prompt,
+                        width=width,
+                        height=height,
+                        num_inference_steps=num_inference_steps,
+                        guidance_scale=guidance_scale,
+                        generator=generator
+                    ).images[0]
             else:
-                # Fallback generator if offline / unconfigured GPU
                 from PIL import ImageDraw
-                output = Image.new("RGB", (width, height), color=(25, 25, 35))
-                draw = ImageDraw.Draw(output)
+                result = Image.new("RGB", (width, height), color=(25, 25, 35))
+                draw = ImageDraw.Draw(result)
                 draw.rectangle([(20, 20), (width - 20, height - 20)], outline=(200, 50, 50), width=4)
-                draw.text((40, 60), "FLUX.1 [DEV] MODAL GPU", fill=(255, 255, 255))
+                draw.text((40, 60), "FLUX MODAL GPU (L4)", fill=(255, 255, 255))
                 draw.text((40, 100), prompt[:150], fill=(200, 200, 200))
 
             buffer = io.BytesIO()
-            output.save(buffer, format="PNG")
-            b64_str = base64.b64encode(buffer.getvalue()).decode("utf-8")
-
-            return {
-                "image_base64": b64_str,
-                "mime_type": "image/png",
-                "seed": seed or 42,
-                "model": "FLUX.1 [dev] / Modal GPU"
-            }
-
-        @modal.fastapi_endpoint(method="POST")
-        def api_generate(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-            """FastAPI REST endpoint callable over HTTP."""
-            prompt = payload.get("prompt", "")
-            width = payload.get("width", 768)
-            height = payload.get("height", 1344)
-            steps = payload.get("steps", 4)
-            seed = payload.get("seed", 42)
-            ref_img = payload.get("ref_image_base64")
-            return self.generate(
-                prompt=prompt,
-                width=width,
-                height=height,
-                steps=steps,
-                seed=seed,
-                ref_image_base64=ref_img
-            )
+            result.save(buffer, format="PNG")
+            return buffer.getvalue()
 
 except ImportError:
-    # If modal package is not in local env, define dummy structure
-    app = None
+    pass
