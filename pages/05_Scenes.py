@@ -126,8 +126,37 @@ def render_scenes_page():
                         if known_name in loc_name or loc_name in known_name:
                             sc["location_id"] = l_id
                             break
-                SceneService.batch_create_scenes(db, project.id, seed_scenes)
-                st.success("Loaded 10 canonical seed scenes for 'After Closing'!")
+                created_scenes = SceneService.batch_create_scenes(db, project.id, seed_scenes)
+
+                # Prepare bible dictionaries for prompt compiler
+                style_dict = {"cinematic_realism": style.cinematic_realism} if style else {}
+                chars_list = [{"name": c.name, "signature_costume": getattr(c, 'signature_costume', ''), "physical_traits": getattr(c, 'physical_traits', ''), "visual_anchor_prompt": getattr(c, 'visual_anchor_prompt', '')} for c in characters]
+
+                # Auto-populate seed shots for each created scene
+                from ai.image_prompt_engine import PromptCompiler
+                for sc in created_scenes:
+                    seed_shots = ShotEngine.get_seed_shots_for_scene(sc.scene_number)
+                    loc = LocationService.get_location(db, sc.location_id) if sc.location_id else None
+                    loc_dict = {"name": getattr(loc, "name", "Interior"), "architecture": getattr(loc, "architecture", ""), "lighting": getattr(loc, "lighting", "")} if loc else {}
+
+                    for s in seed_shots:
+                        s["image_prompt"] = PromptCompiler.compile_image_prompt(
+                            style_data=style_dict,
+                            location_data=loc_dict,
+                            characters_data=chars_list,
+                            scene_data={"visual_direction": sc.visual_direction},
+                            shot_data=s
+                        )
+                        s["video_prompt"] = PromptCompiler.compile_video_prompt(
+                            style_data=style_dict,
+                            location_data=loc_dict,
+                            characters_data=chars_list,
+                            scene_data={"sound_design": sc.sound_design},
+                            shot_data=s
+                        )
+                    ShotService.batch_create_shots_for_scene(db, sc.id, seed_shots)
+
+                st.success(f"Loaded 10 canonical seed scenes and all accompanying shots for 'After Closing'!")
                 st.rerun()
 
         with action_col3:
@@ -142,8 +171,43 @@ def render_scenes_page():
                     purpose="Dramatic progression",
                     emotional_state="Tense"
                 )
-                SceneService.create_scene(db, new_scene_in)
-                st.success(f"Added Scene {new_num}!")
+                created = SceneService.create_scene(db, new_scene_in)
+                # Seed default shots for new scene
+                seed_shots = ShotEngine.get_seed_shots_for_scene(new_num)
+                ShotService.batch_create_shots_for_scene(db, created.id, seed_shots)
+                st.success(f"Added Scene {new_num} with initial shots!")
+                st.rerun()
+
+        # Batch Shot Generation Toolbar if shots missing
+        total_project_shots = len(ShotService.list_shots_by_project(db, project.id))
+        if scenes and total_project_shots == 0:
+            st.warning("⚠️ Scenes exist, but shots have not been generated yet.")
+            if st.button("⚡ Generate All Shots for All Scenes Now", type="primary", use_container_width=True):
+                with st.spinner("Generating shots for all scenes with deterministic prompts..."):
+                    style_dict = {"cinematic_realism": style.cinematic_realism} if style else {}
+                    chars_list = [{"name": c.name, "signature_costume": getattr(c, 'signature_costume', ''), "physical_traits": getattr(c, 'physical_traits', ''), "visual_anchor_prompt": getattr(c, 'visual_anchor_prompt', '')} for c in characters]
+                    from ai.image_prompt_engine import PromptCompiler
+                    for sc in scenes:
+                        seed_shots = ShotEngine.get_seed_shots_for_scene(sc.scene_number)
+                        loc = LocationService.get_location(db, sc.location_id) if sc.location_id else None
+                        loc_dict = {"name": getattr(loc, "name", "Interior"), "architecture": getattr(loc, "architecture", ""), "lighting": getattr(loc, "lighting", "")} if loc else {}
+                        for s in seed_shots:
+                            s["image_prompt"] = PromptCompiler.compile_image_prompt(
+                                style_data=style_dict,
+                                location_data=loc_dict,
+                                characters_data=chars_list,
+                                scene_data={"visual_direction": sc.visual_direction},
+                                shot_data=s
+                            )
+                            s["video_prompt"] = PromptCompiler.compile_video_prompt(
+                                style_data=style_dict,
+                                location_data=loc_dict,
+                                characters_data=chars_list,
+                                scene_data={"sound_design": sc.sound_design},
+                                shot_data=s
+                            )
+                        ShotService.batch_create_shots_for_scene(db, sc.id, seed_shots)
+                st.success("All shots generated across all scenes!")
                 st.rerun()
 
         st.markdown("### Scene Sequence")
@@ -158,7 +222,8 @@ def render_scenes_page():
 
         for scene in scenes:
             loc_label = loc_id_to_name.get(scene.location_id, "No Location")
-            shot_count = len(scene.shots)
+            scene_shots = ShotService.list_shots_by_scene(db, scene.id)
+            shot_count = len(scene_shots)
             status_badge = "✅ Approved" if scene.is_approved else "📝 Draft"
 
             header_text = (
@@ -172,7 +237,6 @@ def render_scenes_page():
                     with f_col1:
                         new_title = st.text_input("Scene Title", value=scene.title or "")
                     with f_col2:
-                        # Location selectbox
                         loc_keys = list(loc_options.keys())
                         cur_idx = loc_keys.index(scene.location_id) if scene.location_id in loc_keys else 0
                         new_loc_id = st.selectbox("Location", options=loc_keys, index=cur_idx, format_func=lambda x: loc_options[x])
@@ -234,6 +298,40 @@ def render_scenes_page():
                     if delete_submitted:
                         SceneService.delete_scene(db, scene.id)
                         st.warning(f"Deleted Scene {scene.scene_number}!")
+                        st.rerun()
+
+                # Embedded Shot Preview inside Scene
+                st.markdown(f"**🎞️ Shots in Scene {scene.scene_number:02d} ({len(scene_shots)} Shots):**")
+                if scene_shots:
+                    for sh in scene_shots:
+                        sh_status = "✅" if sh.status == "approved" else "📝"
+                        st.caption(f"{sh_status} **Shot {sh.shot_number:02d}** [{sh.shot_type}] ({sh.duration_seconds}s) — *{sh.action[:90] if sh.action else 'No action description'}...*")
+                else:
+                    st.caption("No shots generated for this scene yet.")
+                    if st.button(f"⚡ Populate Shots for Scene {scene.scene_number:02d}", key=f"btn_pop_shots_{scene.id}"):
+                        seed_shots = ShotEngine.get_seed_shots_for_scene(scene.scene_number)
+                        style_dict = {"cinematic_realism": style.cinematic_realism} if style else {}
+                        chars_list = [{"name": c.name, "signature_costume": getattr(c, 'signature_costume', ''), "physical_traits": getattr(c, 'physical_traits', ''), "visual_anchor_prompt": getattr(c, 'visual_anchor_prompt', '')} for c in characters]
+                        loc = LocationService.get_location(db, scene.location_id) if scene.location_id else None
+                        loc_dict = {"name": getattr(loc, "name", "Interior"), "architecture": getattr(loc, "architecture", ""), "lighting": getattr(loc, "lighting", "")} if loc else {}
+                        from ai.image_prompt_engine import PromptCompiler
+                        for s in seed_shots:
+                            s["image_prompt"] = PromptCompiler.compile_image_prompt(
+                                style_data=style_dict,
+                                location_data=loc_dict,
+                                characters_data=chars_list,
+                                scene_data={"visual_direction": scene.visual_direction},
+                                shot_data=s
+                            )
+                            s["video_prompt"] = PromptCompiler.compile_video_prompt(
+                                style_data=style_dict,
+                                location_data=loc_dict,
+                                characters_data=chars_list,
+                                scene_data={"sound_design": scene.sound_design},
+                                shot_data=s
+                            )
+                        ShotService.batch_create_shots_for_scene(db, scene.id, seed_shots)
+                        st.success(f"Generated {len(seed_shots)} shots for Scene {scene.scene_number:02d}!")
                         st.rerun()
 
         # Approval Gate
