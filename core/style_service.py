@@ -10,6 +10,11 @@ class StyleService:
         return db.query(VisualStyle).filter(VisualStyle.project_id == project_id).first()
 
     @staticmethod
+    def get_style_by_project(db: Session, project_id: str) -> Optional[VisualStyle]:
+        """Alias for get_project_style."""
+        return db.query(VisualStyle).filter(VisualStyle.project_id == project_id).first()
+
+    @staticmethod
     def save_or_update_style(db: Session, project_id: str, data: VisualStyleSchema, approve: bool = False) -> VisualStyle:
         style = StyleService.get_project_style(db, project_id)
         if not style:

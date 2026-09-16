@@ -33,6 +33,11 @@ class JobService:
         return db.query(GenerationJob).filter(GenerationJob.project_id == project_id).order_by(GenerationJob.created_at.desc()).all()
 
     @staticmethod
+    def list_jobs_by_project(db: Session, project_id: str) -> List[GenerationJob]:
+        """Alias for list_project_jobs."""
+        return JobService.list_project_jobs(db, project_id)
+
+    @staticmethod
     def update_job_status(
         db: Session,
         job_id: str,

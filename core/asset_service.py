@@ -39,6 +39,11 @@ class AssetService:
         return q.order_by(Asset.created_at.desc()).all()
 
     @staticmethod
+    def list_assets_by_project(db: Session, project_id: str, asset_type: Optional[str] = None) -> List[Asset]:
+        """Alias for list_project_assets."""
+        return AssetService.list_project_assets(db, project_id, asset_type)
+
+    @staticmethod
     def approve_asset(db: Session, asset_id: str, approved: bool = True, rejection_reason: Optional[str] = None) -> Optional[Asset]:
         asset = AssetService.get_asset(db, asset_id)
         if not asset:
