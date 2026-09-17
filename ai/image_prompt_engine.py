@@ -8,7 +8,7 @@ and motion video prompts (for LTX-2.3) by deterministically synthesizing:
 from typing import Optional, List, Dict, Any
 
 class PromptCompiler:
-    """Deterministic prompt assembler ensuring 100% visual consistency."""
+    """Deterministic prompt assembler ensuring 100% visual consistency and action-aligned prompts."""
 
     @staticmethod
     def compile_image_prompt(
@@ -18,109 +18,110 @@ class PromptCompiler:
         scene_data: Optional[Dict[str, Any]] = None,
         shot_data: Optional[Dict[str, Any]] = None
     ) -> str:
-        """Assembles a keyframe image prompt from production bible and shot data."""
-        parts = []
+        """Assembles a concise, action-driven keyframe image prompt optimized for FLUX & Qwen."""
+        shot_data = shot_data or {}
+        scene_data = scene_data or {}
+        style_data = style_data or {}
 
-        # 1. Shot Type, Camera Angle & Lens
-        camera_specs = []
-        if shot_data:
-            if shot_data.get("shot_type"):
-                camera_specs.append(shot_data["shot_type"])
-            if shot_data.get("camera_angle") and shot_data["camera_angle"] != "Eye-level":
-                camera_specs.append(f"{shot_data['camera_angle']} perspective")
-            if shot_data.get("lens"):
-                camera_specs.append(f"shot on {shot_data['lens']}")
-            if shot_data.get("framing"):
-                camera_specs.append(f"composition: {shot_data['framing']}")
+        # 1. Shot Framing & Camera Lens
+        shot_type = shot_data.get("shot_type") or "Medium Shot"
+        camera_angle = shot_data.get("camera_angle")
+        lens = shot_data.get("lens")
+        framing = shot_data.get("framing")
 
-        if camera_specs:
-            parts.append(f"Cinematic {', '.join(camera_specs)}.")
+        cam_parts = [shot_type]
+        if camera_angle and camera_angle.lower() not in ["eye-level", "eye level", "none", ""]:
+            cam_parts.append(camera_angle)
+        if lens and lens.lower() not in ["none", ""]:
+            cam_parts.append(lens)
 
-        # 2. Characters and Physical Visual Anchors
-        char_prompts = []
+        camera_str = f"Cinematic {', '.join(cam_parts)}"
+        if framing and len(framing) < 80 and framing.lower() not in [shot_type.lower(), camera_angle.lower() if camera_angle else ""]:
+            camera_str += f", {framing.rstrip('.')}"
+
+        # 2. Characters in Frame with Costume Anchors
+        shot_char_names = shot_data.get("characters") or []
+        if isinstance(shot_char_names, str):
+            shot_char_names = [c.strip() for c in shot_char_names.split(",") if c.strip()]
+
+        active_chars_data = []
         if characters_data:
-            for char in characters_data:
-                char_name = char.get("name", "Character")
-                char_anchor = char.get("visual_anchor_prompt")
-                costume = char.get("signature_costume")
-                traits = char.get("physical_traits")
+            if shot_char_names:
+                for c in characters_data:
+                    c_name = c.get("name", "")
+                    if any(c_name.lower() == sc.lower() or sc.lower() in c_name.lower() for sc in shot_char_names):
+                        active_chars_data.append(c)
+            else:
+                active_chars_data = characters_data
 
-                desc_parts = [char_name]
-                if traits:
-                    desc_parts.append(traits)
+        char_strs = []
+        if active_chars_data:
+            for char in active_chars_data:
+                name = char.get("name", "Subject")
+                costume = char.get("signature_costume") or char.get("clothing")
+                traits = char.get("physical_traits") or char.get("appearance")
+                
                 if costume:
-                    desc_parts.append(f"wearing {costume}")
-                if char_anchor and not traits and not costume:
-                    desc_parts.append(char_anchor)
+                    char_strs.append(f"{name} in {costume}")
+                elif traits:
+                    short_trait = traits.split(",")[0].strip()
+                    char_strs.append(f"{name} ({short_trait})")
+                else:
+                    char_strs.append(name)
+        elif shot_char_names:
+            char_strs = shot_char_names
 
-                char_prompts.append(", ".join(desc_parts))
+        char_line = ", ".join(char_strs) if char_strs else "Subject"
 
-        if char_prompts:
-            parts.append(f"Featuring: {'; '.join(char_prompts)}.")
+        # 3. Physical Action & Movement (Core Dramatic Centerpiece)
+        action = (shot_data.get("action") or "").strip().rstrip(".")
+        emotion = (shot_data.get("emotion") or "").strip().rstrip(".")
 
-        # 3. Shot Action & Character Emotion
-        if shot_data:
-            action = shot_data.get("action")
-            emotion = shot_data.get("emotion")
-            if action:
-                action_str = f"Action: {action}"
-                if emotion:
-                    action_str += f" with expression of {emotion}"
-                parts.append(action_str + ".")
+        if action:
+            action_phrase = action
+            for char in active_chars_data:
+                c_name = char.get("name", "")
+                costume = char.get("signature_costume") or char.get("clothing")
+                if c_name and costume and c_name.lower() in action_phrase.lower():
+                    if costume.lower() not in action_phrase.lower():
+                        import re
+                        pattern = re.compile(re.escape(c_name), re.IGNORECASE)
+                        action_phrase = pattern.sub(f"{c_name} in {costume}", action_phrase, count=1)
 
-        # 4. Location & Environmental Setting
-        if location_data:
-            loc_name = location_data.get("name", "Interior")
-            loc_anchor = location_data.get("visual_anchor_prompt")
-            loc_arch = location_data.get("architecture")
-            loc_mats = location_data.get("materials")
-
-            loc_parts = [f"Environment: {loc_name}"]
-            if loc_arch:
-                loc_parts.append(loc_arch)
-            if loc_mats:
-                loc_parts.append(f"with {loc_mats}")
-            if loc_anchor and not loc_arch:
-                loc_parts.append(loc_anchor)
-
-            parts.append(", ".join(loc_parts) + ".")
-        elif shot_data and shot_data.get("environment"):
-            parts.append(f"Environment: {shot_data['environment']}.")
-
-        # 5. Lighting & Atmosphere
-        lighting_elements = []
-        if shot_data and shot_data.get("lighting"):
-            lighting_elements.append(shot_data["lighting"])
-        elif scene_data and scene_data.get("visual_direction"):
-            lighting_elements.append(scene_data["visual_direction"])
-        elif location_data and location_data.get("lighting"):
-            lighting_elements.append(location_data["lighting"])
-
-        if lighting_elements:
-            parts.append(f"Lighting: {', '.join(lighting_elements)}.")
-
-        # 6. Project Visual Style & Aesthetic Anchors
-        if style_data:
-            style_parts = []
-            if style_data.get("cinematic_realism"):
-                style_parts.append(style_data["cinematic_realism"])
-            if style_data.get("contrast"):
-                style_parts.append(f"{style_data['contrast']} contrast")
-            if style_data.get("film_grain"):
-                style_parts.append(f"{style_data['film_grain']} film grain")
-            if style_data.get("depth_of_field"):
-                style_parts.append(f"{style_data['depth_of_field']} depth of field")
-
-            if style_parts:
-                parts.append(f"Visual Quality: {', '.join(style_parts)}, 8k UHD, masterpiece raw cinematic film capture.")
+            has_name = any(c.get("name", "").lower() in action.lower() for c in (active_chars_data or [])) or any(sc.lower() in action.lower() for sc in shot_char_names)
+            if not has_name:
+                action_phrase = f"{char_line} {action}"
         else:
-            parts.append("Visual Quality: Photorealistic 35mm motion picture still, 8k resolution, hyper-detailed textures.")
+            action_phrase = f"{char_line} positioned in frame"
 
-        # 7. Optical and visual effects
-        if shot_data and shot_data.get("visual_effects"):
-            parts.append(f"Optical effects: {shot_data['visual_effects']}.")
+        if emotion and emotion.lower() not in action_phrase.lower():
+            action_phrase += f", expression of {emotion}"
 
-        return " ".join(parts)
+        # 4. Location & Lighting Atmosphere
+        loc_name = (location_data.get("name") if location_data else shot_data.get("environment")) or "Interior"
+        lighting = shot_data.get("lighting") or (location_data.get("lighting") if location_data else "") or scene_data.get("visual_direction") or ""
+
+        env_parts = [f"Location: {loc_name}"]
+        if lighting:
+            env_parts.append(f"Lighting: {lighting.rstrip('.')}")
+
+        env_str = ". ".join(env_parts)
+
+        # 5. Cinematic Style & Texture
+        realism = style_data.get("cinematic_realism") or "Ultra-realistic 35mm film capture"
+        dof = style_data.get("depth_of_field")
+        contrast = style_data.get("contrast")
+
+        style_parts = [realism.rstrip('.')]
+        if dof:
+            style_parts.append(f"{dof} depth of field")
+        if contrast:
+            style_parts.append(f"{contrast} contrast")
+
+        style_str = ", ".join(style_parts) + ", 35mm film still"
+
+        # Build clean cohesive output
+        return f"{camera_str}: {action_phrase}. {env_str}. {style_str}."
 
     @staticmethod
     def compile_video_prompt(
@@ -131,36 +132,28 @@ class PromptCompiler:
         shot_data: Optional[Dict[str, Any]] = None
     ) -> str:
         """Assembles a motion-focused video generation prompt for LTX-2.3."""
-        parts = []
+        shot_data = shot_data or {}
+        scene_data = scene_data or {}
 
-        # 1. Temporal Camera Dynamics
-        movement = shot_data.get("camera_movement", "Slow subtle push-in") if shot_data else "Slow dolly"
-        shot_type = shot_data.get("shot_type", "Cinematic Medium Shot") if shot_data else "Medium Shot"
-        duration = shot_data.get("duration_seconds", 5.0) if shot_data else 5.0
+        shot_type = shot_data.get("shot_type", "Medium Shot")
+        movement = shot_data.get("camera_movement", "Slow dolly in")
+        duration = shot_data.get("duration_seconds", 5.0)
+        action = (shot_data.get("action") or "").strip().rstrip(".")
+        emotion = (shot_data.get("emotion") or "").strip().rstrip(".")
 
-        parts.append(f"{shot_type}, camera executes continuous {movement} over {duration}s duration.")
+        # 1. Camera Movement
+        cam_motion = f"{shot_type}, camera executes {movement} over {duration}s duration."
 
-        # 2. Subject Dynamics and Physical Movement
-        if shot_data and shot_data.get("action"):
-            parts.append(f"Movement: {shot_data['action']}.")
+        # 2. Character Action & Performance
+        action_motion = f"Action & Movement: {action}." if action else ""
+        emotion_motion = f"Character performance: {emotion}." if emotion else ""
 
-        # 3. Micro-expressions & Character Tension
-        if shot_data and shot_data.get("emotion"):
-            parts.append(f"Character performance: subtle facial twitch, {shot_data['emotion']}, micro-movements of eyes and breathing.")
+        # 3. Environment Dynamics
+        lighting = shot_data.get("lighting") or scene_data.get("visual_direction")
+        lighting_motion = f"Atmosphere: {lighting.rstrip('.')}." if lighting else ""
 
-        # 4. Environmental Motion & Lighting Shifts
-        env_motion = []
-        if shot_data and shot_data.get("lighting"):
-            env_motion.append(f"lighting reflects {shot_data['lighting']}")
-        if scene_data and scene_data.get("sound_design"):
-            env_motion.append(f"atmospheric rhythm matching {scene_data['sound_design']}")
-
-        if env_motion:
-            parts.append(f"Atmospheric dynamics: {', '.join(env_motion)}.")
-
-        # 5. Motion Fidelity & Physics Constraints
-        parts.append("Motion Quality: Smooth fluid cinematic motion, natural human physics, zero morphing artifacts, stable anatomical geometry.")
-
+        # Combine
+        parts = [p for p in [cam_motion, action_motion, emotion_motion, lighting_motion, "Fluid cinematic motion, photorealistic physics, seamless temporal consistency."] if p]
         return " ".join(parts)
 
     @staticmethod
@@ -172,3 +165,4 @@ class PromptCompiler:
             "jpeg compression artifacts, watermark, logo, text overlay, blur, low resolution, bad hands"
         )
         return base_negative
+

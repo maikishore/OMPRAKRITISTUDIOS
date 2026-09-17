@@ -105,10 +105,10 @@ def render_shots_page():
             for c in characters
         ]
 
-        btn_col1, btn_col2, btn_col3, btn_col4 = st.columns([2, 2, 1.5, 2.5])
+        btn_col1, btn_col2, btn_col3, btn_col4, btn_col5 = st.columns([2, 1.8, 1.4, 2, 2.2])
 
         with btn_col1:
-            if st.button(f"🤖 Generate Shots for Scene {scene.scene_number:02d} (Gemma 4 26B)", use_container_width=True, type="primary"):
+            if st.button(f"🤖 Generate Shots (Gemma 4 26B)", use_container_width=True, type="primary"):
                 with st.spinner(f"Decomposing Scene {scene.scene_number} into granular shots using Gemma 4 26B & compiling deterministic prompts..."):
                     engine = ShotEngine()
                     scene_dict = {
@@ -138,20 +138,22 @@ def render_shots_page():
                     st.rerun()
 
         with btn_col2:
-            if st.button(f"🌱 Load Seed Shots for Scene {scene.scene_number:02d}", use_container_width=True):
+            if st.button(f"🌱 Load Seed Shots", use_container_width=True):
                 seed_shots = ShotEngine.get_seed_shots_for_scene(scene.scene_number)
                 for s in seed_shots:
+                    s_chars = s.get("characters", [])
+                    s_chars_data = [c for c in chars_list if c.get("name") in s_chars] if chars_list else None
                     s["image_prompt"] = PromptCompiler.compile_image_prompt(
                         style_data=style_dict,
                         location_data=loc_dict,
-                        characters_data=chars_list,
+                        characters_data=s_chars_data or chars_list,
                         scene_data={"visual_direction": scene.visual_direction},
                         shot_data=s
                     )
                     s["video_prompt"] = PromptCompiler.compile_video_prompt(
                         style_data=style_dict,
                         location_data=loc_dict,
-                        characters_data=chars_list,
+                        characters_data=s_chars_data or chars_list,
                         scene_data={"sound_design": scene.sound_design},
                         shot_data=s
                     )
@@ -160,7 +162,7 @@ def render_shots_page():
                 st.rerun()
 
         with btn_col3:
-            if st.button("➕ Add Manual Shot", use_container_width=True):
+            if st.button("➕ Manual Shot", use_container_width=True):
                 new_num = len(shots) + 1
                 manual_shot = ShotCreate(
                     scene_id=scene.id,
@@ -194,9 +196,49 @@ def render_shots_page():
                 st.rerun()
 
         with btn_col4:
+            if shots and st.button("⚡ Recompile All Prompts", use_container_width=True, help="Synchronizes and regenerates all image & video prompts based on current actions and selected parameters"):
+                with st.spinner(f"Recompiling prompts for all {len(shots)} shots..."):
+                    for s in shots:
+                        s_chars = s.characters or []
+                        s_chars_data = [c for c in chars_list if c.get("name") in s_chars] if chars_list else None
+                        re_img = PromptCompiler.compile_image_prompt(
+                            style_data=style_dict,
+                            location_data=loc_dict,
+                            characters_data=s_chars_data or chars_list,
+                            scene_data={"visual_direction": scene.visual_direction},
+                            shot_data={
+                                "shot_type": s.shot_type,
+                                "camera_angle": s.camera_angle,
+                                "lens": s.lens,
+                                "characters": s_chars,
+                                "action": s.action,
+                                "emotion": s.emotion,
+                                "lighting": s.lighting
+                            }
+                        )
+                        re_vid = PromptCompiler.compile_video_prompt(
+                            style_data=style_dict,
+                            location_data=loc_dict,
+                            characters_data=s_chars_data or chars_list,
+                            scene_data={"sound_design": scene.sound_design},
+                            shot_data={
+                                "shot_type": s.shot_type,
+                                "camera_movement": s.camera_movement,
+                                "duration_seconds": s.duration_seconds,
+                                "characters": s_chars,
+                                "action": s.action,
+                                "emotion": s.emotion,
+                                "lighting": s.lighting
+                            }
+                        )
+                        ShotService.update_shot(db, s.id, {"image_prompt": re_img, "video_prompt": re_vid})
+                st.success(f"✨ Synchronized prompts for all {len(shots)} shots!")
+                st.rerun()
+
+        with btn_col5:
             dialogue_shots = [s for s in shots if s.dialogue and s.dialogue.strip()]
             if dialogue_shots:
-                if st.button(f"🎙️ Batch Synthesize Scene Dialogue ({len(dialogue_shots)} lines)", use_container_width=True):
+                if st.button(f"🎙️ Synthesize Dialogue ({len(dialogue_shots)})", use_container_width=True):
                     with st.spinner(f"Synthesizing emotional dialogue for {len(dialogue_shots)} shots via Qwen3-TTS 1.7B..."):
                         synth_count = 0
                         for d_shot in dialogue_shots:
@@ -228,7 +270,7 @@ def render_shots_page():
         # Shot List Display
         st.markdown(f"### Shotlist for Scene {scene.scene_number:02d} ({len(shots)} Shots)")
         if not shots:
-            st.info("No shots created for this scene yet. Click 'Generate Shots with Gemma 4 26B' or 'Load Seed Shots'.")
+            st.info("No shots created for this scene yet. Click 'Generate Shots' or 'Load Seed Shots'.")
             return
 
         total_shot_duration = sum(s.duration_seconds for s in shots)
@@ -284,6 +326,12 @@ def render_shots_page():
 
                         # Compiled Prompts Section
                         st.markdown("#### 🎯 Compiled Production Prompts")
+                        auto_sync = st.checkbox(
+                            "⚡ Auto-Sync Prompts from Selected Options on Save",
+                            value=True,
+                            key=f"auto_sync_{shot.id}",
+                            help="When checked, saving updates the Keyframe and Video prompts to match your Physical Action, Camera, Characters, and Lighting selections"
+                        )
                         new_image_prompt = st.text_area(
                             "🖼️ Keyframe Image Prompt (Deterministic: FLUX / Qwen)",
                             value=shot.image_prompt or "",
@@ -312,6 +360,43 @@ def render_shots_page():
 
                         if save_shot_btn:
                             char_list = [c.strip() for c in new_chars_str.split(",") if c.strip()]
+                            shot_chars_data = [c for c in chars_list if c.get("name") in char_list] if chars_list else None
+                            
+                            if auto_sync:
+                                final_img_prompt = PromptCompiler.compile_image_prompt(
+                                    style_data=style_dict,
+                                    location_data=loc_dict,
+                                    characters_data=shot_chars_data or chars_list,
+                                    scene_data={"visual_direction": scene.visual_direction},
+                                    shot_data={
+                                        "shot_type": new_shot_type,
+                                        "camera_angle": new_angle,
+                                        "lens": new_lens,
+                                        "characters": char_list,
+                                        "action": new_action,
+                                        "emotion": new_emotion,
+                                        "lighting": new_lighting
+                                    }
+                                )
+                                final_vid_prompt = PromptCompiler.compile_video_prompt(
+                                    style_data=style_dict,
+                                    location_data=loc_dict,
+                                    characters_data=shot_chars_data or chars_list,
+                                    scene_data={"sound_design": scene.sound_design},
+                                    shot_data={
+                                        "shot_type": new_shot_type,
+                                        "camera_movement": new_movement,
+                                        "duration_seconds": new_duration,
+                                        "characters": char_list,
+                                        "action": new_action,
+                                        "emotion": new_emotion,
+                                        "lighting": new_lighting
+                                    }
+                                )
+                            else:
+                                final_img_prompt = new_image_prompt
+                                final_vid_prompt = new_video_prompt
+
                             ShotService.update_shot(db, shot.id, {
                                 "shot_type": new_shot_type,
                                 "camera_angle": new_angle,
@@ -323,22 +408,25 @@ def render_shots_page():
                                 "action": new_action,
                                 "lighting": new_lighting,
                                 "sound": new_sound,
-                                "image_prompt": new_image_prompt,
-                                "video_prompt": new_video_prompt
+                                "image_prompt": final_img_prompt,
+                                "video_prompt": final_vid_prompt
                             })
-                            st.success(f"Shot {shot.shot_number} saved and prompt version recorded!")
+                            st.success(f"Shot {shot.shot_number} saved and prompts synchronized!")
                             st.rerun()
 
                         if recompile_btn:
+                            char_list = [c.strip() for c in new_chars_str.split(",") if c.strip()]
+                            shot_chars_data = [c for c in chars_list if c.get("name") in char_list] if chars_list else None
                             recompiled_img = PromptCompiler.compile_image_prompt(
                                 style_data=style_dict,
                                 location_data=loc_dict,
-                                characters_data=chars_list,
+                                characters_data=shot_chars_data or chars_list,
                                 scene_data={"visual_direction": scene.visual_direction},
                                 shot_data={
                                     "shot_type": new_shot_type,
                                     "camera_angle": new_angle,
                                     "lens": new_lens,
+                                    "characters": char_list,
                                     "action": new_action,
                                     "emotion": new_emotion,
                                     "lighting": new_lighting
@@ -347,22 +435,33 @@ def render_shots_page():
                             recompiled_vid = PromptCompiler.compile_video_prompt(
                                 style_data=style_dict,
                                 location_data=loc_dict,
-                                characters_data=chars_list,
+                                characters_data=shot_chars_data or chars_list,
                                 scene_data={"sound_design": scene.sound_design},
                                 shot_data={
                                     "shot_type": new_shot_type,
                                     "camera_movement": new_movement,
                                     "duration_seconds": new_duration,
+                                    "characters": char_list,
                                     "action": new_action,
                                     "emotion": new_emotion,
                                     "lighting": new_lighting
                                 }
                             )
                             ShotService.update_shot(db, shot.id, {
+                                "shot_type": new_shot_type,
+                                "camera_angle": new_angle,
+                                "camera_movement": new_movement,
+                                "lens": new_lens,
+                                "characters": char_list,
+                                "duration_seconds": new_duration,
+                                "emotion": new_emotion,
+                                "action": new_action,
+                                "lighting": new_lighting,
+                                "sound": new_sound,
                                 "image_prompt": recompiled_img,
                                 "video_prompt": recompiled_vid
                             })
-                            st.success("Prompts recompiled from production bible!")
+                            st.success(f"Prompts recompiled and synchronized for Shot {shot.shot_number}!")
                             st.rerun()
 
                         if approve_shot_btn:
