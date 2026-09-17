@@ -200,11 +200,17 @@ def render_shots_page():
                     with st.spinner(f"Synthesizing emotional dialogue for {len(dialogue_shots)} shots via Qwen3-TTS 1.7B..."):
                         synth_count = 0
                         for d_shot in dialogue_shots:
-                            # Determine speaking character
-                            char_name = d_shot.characters[0] if d_shot.characters else ""
-                            char_obj = VoiceService.get_dialogue_character(db, project.id, char_name)
+                            # Auto-detect speaking character and clean text
+                            spk_name, clean_text = VoiceService.auto_detect_speaker_and_text(
+                                d_shot.dialogue,
+                                d_shot.characters if d_shot.characters else [c.name for c in characters]
+                            )
+                            char_obj = VoiceService.get_dialogue_character(db, project.id, spk_name)
                             if not char_obj and characters:
                                 char_obj = characters[0]
+
+                            # Auto-detect acting style based on shot emotion and text
+                            auto_style = VoiceService.suggest_acting_style(d_shot.emotion, d_shot.dialogue)
 
                             if char_obj:
                                 VoiceService.synthesize_shot_dialogue(
@@ -212,8 +218,8 @@ def render_shots_page():
                                     project_id=project.id,
                                     shot_id=d_shot.id,
                                     character=char_obj,
-                                    dialogue_text=d_shot.dialogue,
-                                    emotion=d_shot.emotion
+                                    dialogue_text=clean_text or d_shot.dialogue,
+                                    emotion=auto_style
                                 )
                                 synth_count += 1
                         st.success(f"✨ Synthesized Qwen3-TTS audio for {synth_count} shots in Scene {scene.scene_number:02d}!")
@@ -372,16 +378,39 @@ def render_shots_page():
                 with tab_audio:
                     st.markdown("#### 🎙️ Qwen3-TTS 1.7B Emotional Acting & Voice Synthesis")
                     
-                    # Select speaking character
+                    # Auto-detect speaking character and clean dialogue line
                     char_names = [c.name for c in characters] if characters else ["Narrator"]
+                    detected_speaker, clean_dialogue = VoiceService.auto_detect_speaker_and_text(
+                        shot.dialogue or "",
+                        shot.characters if shot.characters else char_names
+                    )
+
+                    # Match detected_speaker to char_names list
                     default_speaker_idx = 0
-                    if shot.characters and shot.characters[0] in char_names:
-                        default_speaker_idx = char_names.index(shot.characters[0])
+                    for idx, cn in enumerate(char_names):
+                        if cn.lower() == detected_speaker.lower() or cn.lower() in detected_speaker.lower() or detected_speaker.lower() in cn.lower():
+                            default_speaker_idx = idx
+                            break
+
+                    # Auto-suggest acting style preset
+                    suggested_style = VoiceService.suggest_acting_style(shot.emotion, clean_dialogue or shot.dialogue or "")
+                    style_options = [
+                        "Whispering & Terrified",
+                        "Urgent & Shouting",
+                        "Tense & Breathless",
+                        "Cold & Controlled",
+                        "Grounded & Analytical",
+                        "Sarcastic & Dismissive",
+                        "Sorrowful & Weeping",
+                        "Neutral / Conversational",
+                        f"Dynamic: {shot.emotion or 'Tense'}"
+                    ]
+                    default_style_idx = style_options.index(suggested_style) if suggested_style in style_options else 0
 
                     d_col1, d_col2 = st.columns([2, 2])
                     with d_col1:
                         speaker_name = st.selectbox(
-                            "Speaking Character",
+                            "Speaking Character (Auto-Detected)",
                             options=char_names,
                             index=default_speaker_idx,
                             key=f"speaker_select_{shot.id}"
@@ -397,17 +426,9 @@ def render_shots_page():
 
                     with d_col2:
                         emotion_tag = st.selectbox(
-                            "Emotional Delivery / Acting Style",
-                            options=[
-                                f"Current Shot Emotion: {shot.emotion or 'Neutral'}",
-                                "Whispering & Terrified",
-                                "Urgent & Shouting",
-                                "Tense & Breathless",
-                                "Cold & Controlled",
-                                "Grounded & Analytical",
-                                "Sarcastic & Dismissive",
-                                "Sorrowful & Weeping"
-                            ],
+                            "Emotional Delivery / Acting Style (Auto-Selected)",
+                            options=style_options,
+                            index=default_style_idx,
                             key=f"emotion_delivery_{shot.id}"
                         )
 
@@ -415,7 +436,7 @@ def render_shots_page():
                     with d_inst_col1:
                         edited_dialogue = st.text_area(
                             "Spoken Line / Dialogue Text",
-                            value=shot.dialogue or "",
+                            value=clean_dialogue if clean_dialogue else (shot.dialogue or ""),
                             placeholder="e.g. Someone is inside the building with us... quiet!",
                             height=80,
                             key=f"dialogue_text_{shot.id}"
@@ -447,8 +468,10 @@ def render_shots_page():
                         )
 
                     if save_dialogue_btn:
-                        ShotService.update_shot(db, shot.id, {"dialogue": edited_dialogue})
-                        st.success("Dialogue line saved to shot!")
+                        # Re-format as Speaker: SpokenLine if speaker is selected
+                        formatted_line = f"{speaker_name}: '{edited_dialogue.strip()}'" if speaker_name else edited_dialogue.strip()
+                        ShotService.update_shot(db, shot.id, {"dialogue": formatted_line})
+                        st.success("Dialogue line and speaker saved to shot!")
                         st.rerun()
 
                     if synth_btn:

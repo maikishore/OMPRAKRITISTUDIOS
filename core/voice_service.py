@@ -190,6 +190,46 @@ class VoiceService:
         return res.audio_bytes
 
     @classmethod
+    def suggest_acting_style(cls, emotion: Optional[str] = None, dialogue_text: str = "") -> str:
+        """Classifies shot emotion and dialogue text into the most fitting acting style preset."""
+        combined = f"{emotion or ''} {dialogue_text or ''}".lower()
+        
+        if any(w in combined for w in ["whisper", "quiet", "hush", "terrified", "dread", "shaking", "creeping"]):
+            return "Whispering & Terrified"
+        elif any(w in combined for w in ["shout", "scream", "urgent", "panic", "hurry", "run", "fast", "adrenaline", "danger", "now!"]):
+            return "Urgent & Shouting"
+        elif any(w in combined for w in ["breathless", "gasp", "tense", "anxiety", "tight", "hesitation", "strain", "fear"]):
+            return "Tense & Breathless"
+        elif any(w in combined for w in ["cold", "controlled", "eerie", "calculated", "sinister", "serene", "unblinking", "waxy", "porcelain", "smile"]):
+            return "Cold & Controlled"
+        elif any(w in combined for w in ["analytical", "grounded", "cautious", "focused", "inspect", "check", "steady", "resolve"]):
+            return "Grounded & Analytical"
+        elif any(w in combined for w in ["sarcastic", "dismissive", "laugh", "party", "carefree", "smirk", "mock"]):
+            return "Sarcastic & Dismissive"
+        elif any(w in combined for w in ["grief", "sorrow", "weep", "cry", "sob", "tears", "loss", "despair"]):
+            return "Sorrowful & Weeping"
+        else:
+            return "Tense & Breathless" if "tense" in combined else "Neutral / Conversational"
+
+    @classmethod
+    def auto_detect_speaker_and_text(cls, dialogue_text: str, available_characters: List[str]) -> tuple[str, str]:
+        """Auto-detects the speaking character name and returns the clean spoken line.
+        
+        Example:
+            'David: "Pull the latch!"' -> ('David', 'Pull the latch!')
+            '"Don\'t move!"' with available_characters=['Lucy'] -> ('Lucy', 'Don\'t move!')
+        """
+        speaker_prefix, clean_line = cls.clean_dialogue_text(dialogue_text)
+        if speaker_prefix:
+            for char_name in available_characters:
+                if char_name.lower() in speaker_prefix.lower() or speaker_prefix.lower() in char_name.lower():
+                    return char_name, clean_line
+            return speaker_prefix, clean_line
+        
+        default_speaker = available_characters[0] if available_characters else "Narrator"
+        return default_speaker, clean_line or (dialogue_text or "")
+
+    @classmethod
     def clean_dialogue_text(cls, raw_dialogue: str) -> tuple[str, str]:
         """Extracts speaker prefix (if any) and cleans spoken text for TTS synthesis.
         

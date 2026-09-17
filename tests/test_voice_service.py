@@ -80,3 +80,26 @@ def test_synthesize_shot_dialogue_with_qwen():
         retrieved_audio = VoiceService.get_audio_for_shot(db, shot.id)
         assert retrieved_audio is not None
         assert retrieved_audio.id == saved_asset.id
+
+def test_speaker_and_style_auto_detection():
+    # 1. Speaker & text auto-detection
+    spk1, text1 = VoiceService.auto_detect_speaker_and_text("David: 'The emergency latch is jammed!'", ["Lucy", "David"])
+    assert spk1 == "David"
+    assert text1 == "The emergency latch is jammed!"
+
+    spk2, text2 = VoiceService.auto_detect_speaker_and_text('Lucy: "Can you hear that?"', ["Lucy", "David"])
+    assert spk2 == "Lucy"
+    assert text2 == "Can you hear that?"
+
+    spk3, text3 = VoiceService.auto_detect_speaker_and_text("Look out!", ["Lucy", "David"])
+    assert spk3 == "Lucy"
+    assert text3 == "Look out!"
+
+    # 2. Acting style auto-suggestion
+    assert VoiceService.suggest_acting_style("Terrified dread", "(whispering) Don't look back") == "Whispering & Terrified"
+    assert VoiceService.suggest_acting_style("Panic and urgency", "Run, the gates are closing down now!") == "Urgent & Shouting"
+    assert VoiceService.suggest_acting_style("Breathless tension", "I can't breathe...") == "Tense & Breathless"
+    assert VoiceService.suggest_acting_style("Eerie calmness", "All obedient models are allowed to greet the morning.") == "Cold & Controlled"
+    assert VoiceService.suggest_acting_style("Focused resolve", "Let's inspect the CCTV terminal.") == "Grounded & Analytical"
+    assert VoiceService.suggest_acting_style("Grief and heartbreak", "He's gone... I'm so sorry...") == "Sorrowful & Weeping"
+
