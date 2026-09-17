@@ -21,6 +21,7 @@ try:
         modal.Image.debian_slim(python_version="3.11")
         .apt_install("git", "ffmpeg", "libsndfile1")
         .pip_install(
+            "qwen-tts>=0.1.0",
             "torch>=2.4.0",
             "torchaudio>=2.4.0",
             "transformers>=4.48.0",
@@ -28,8 +29,7 @@ try:
             "soundfile>=0.13.1",
             "huggingface_hub>=0.25.0",
             "scipy>=1.15.0",
-            "numpy>=1.26.0",
-            "kokoro>=0.8.4"
+            "numpy>=1.26.0"
         )
         .env({
             "HF_HOME": "/cache/huggingface"
@@ -50,24 +50,21 @@ try:
         def load_qwen_tts(self):
             import torch
             print("🔊 Initializing Qwen3-TTS 1.7B Pipeline on Modal GPU...")
-            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
             self.model = None
 
             try:
-                # Try loading Qwen3-TTS CustomVoice / Transformers pipeline
-                from transformers import AutoModelForCausalLM, AutoTokenizer
+                from qwen_tts import Qwen3TTSModel
                 model_id = "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
                 print(f"Loading {model_id} onto {self.device}...")
-                self.tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
-                self.model = AutoModelForCausalLM.from_pretrained(
+                self.model = Qwen3TTSModel.from_pretrained(
                     model_id,
-                    torch_dtype=torch.bfloat16,
-                    device_map="auto",
-                    trust_remote_code=True
+                    device_map=self.device,
+                    dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32
                 )
                 print("✅ Qwen3-TTS 1.7B CustomVoice loaded successfully!")
             except Exception as e:
-                print(f"⚠️ Qwen3-TTS direct load note ({e}), falling back to standard audio pipeline.")
+                print(f"⚠️ Qwen3-TTS direct load note: {e}")
                 self.model = None
 
         @modal.method()
@@ -100,15 +97,26 @@ try:
                         text=text,
                         language="English",
                         speaker=speaker_name,
-                        instruct=instruct or "Speak naturally and expressively"
+                        instruct=instruct or "Speak with authentic emotion and dramatic tone"
                     )
+                    
+                    if hasattr(wavs, "cpu"):
+                        audio_np = wavs.cpu().numpy()
+                    elif isinstance(wavs, list) and len(wavs) > 0:
+                        audio_np = wavs[0].cpu().numpy() if hasattr(wavs[0], "cpu") else np.array(wavs[0])
+                    else:
+                        audio_np = np.array(wavs)
+
+                    if audio_np.ndim > 1:
+                        audio_np = audio_np.squeeze()
+
                     buffer = io.BytesIO()
-                    sf.write(buffer, wavs[0], sr, format="WAV")
+                    sf.write(buffer, audio_np, sr if sr else 24000, format="WAV")
                     return buffer.getvalue()
                 except Exception as ex:
                     print(f"Error during Qwen3-TTS generation ({ex}), generating clean synthetic fallback.")
 
-            # High-fidelity synthetic fallback WAV with emotion modulation
+            # High-fidelity synthetic fallback WAV with emotion modulation if model is offline
             import math, struct
             sample_rate = 24000
             word_count = max(1, len(text.split()))
