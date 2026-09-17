@@ -51,11 +51,25 @@ class MockImageProvider(ImageProvider):
             draw.text((45, y_offset), line, fill=(230, 230, 230))
             y_offset += 24
 
+        # Render reference thumbnails if provided
+        if request.reference_images:
+            x_thumb = width - 160
+            y_thumb = 140
+            for r_idx, r_bytes in enumerate(request.reference_images[:3]):
+                try:
+                    r_img = Image.open(io.BytesIO(r_bytes)).convert("RGB").resize((120, 120))
+                    img.paste(r_img, (x_thumb, y_thumb))
+                    draw.rectangle([(x_thumb, y_thumb), (x_thumb + 120, y_thumb + 120)], outline=(100, 220, 120), width=2)
+                    draw.text((x_thumb + 5, y_thumb + 125), f"REF #{r_idx+1}", fill=(100, 220, 120))
+                    y_thumb += 150
+                except Exception:
+                    pass
+
         # Footer parameters
         footer_y = height - 100
         ref_count = len(request.reference_images)
         ref_badge = f"IP-Adapter Face Lock: {ref_count} Ref Active" if ref_count > 0 else "Base Diffusion"
-        draw.text((45, footer_y), f"Resolution: {width}x{height} (9:16) | Seed: {request.seed or 42}", fill=(180, 180, 180))
+        draw.text((45, footer_y), f"Resolution: {width}x{height} | Seed: {request.seed or 42}", fill=(180, 180, 180))
         draw.text((45, footer_y + 25), f"Model: FLUX.1 / Modal GPU | {ref_badge}", fill=(100, 220, 120))
 
         # Output PNG bytes

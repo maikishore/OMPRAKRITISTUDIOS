@@ -598,11 +598,11 @@ def render_images_page():
                                             st.rerun()
 
         # -------------------------------------------------------------
-        # TAB 3: SHOT KEYFRAMES (FACE-LOCKED & LOCATION-ANCHORED)
+        # TAB 3: SHOT KEYFRAMES (INTERACTIVE FACE & LOCATION LOCKING)
         # -------------------------------------------------------------
         with tab_shots:
-            st.subheader("🎞️ Shot Keyframe Generation & Face-Locking")
-            st.caption("Generate high-fidelity initial keyframes for each shot. Automatically passes approved Character Master Portraits into IP-Adapter for zero face drift.")
+            st.subheader("🎞️ Shot Keyframe Generation & Interactive Reference Locking")
+            st.caption("Select any previously generated Character Master portraits or Location Environment stills to condition and face-lock the shot keyframe.")
 
             if not scenes:
                 st.info("No scenes found. Please configure scenes on Page 05 Scenes.")
@@ -626,7 +626,20 @@ def render_images_page():
                             st.markdown(f"**Camera / Lens:** {shot.shot_type}, {shot.camera_angle}, {shot.lens}")
                             st.markdown(f"**Characters in Frame:** {', '.join(shot.characters) if shot.characters else 'None'}")
 
-                            # 1. ROBUST CHARACTER & LOCATION REFERENCE RESOLVER
+                            # 1. GATHER ALL PROJECT REFERENCE ASSETS
+                            all_project_assets = AssetService.list_assets_by_project(db, project.id)
+                            char_ref_assets = [
+                                a for a in all_project_assets
+                                if a.type in [AssetType.CHARACTER_REFERENCE.value, AssetType.CHARACTER_SHEET.value]
+                                and Path(a.file_path).exists()
+                            ]
+                            loc_ref_assets = [
+                                a for a in all_project_assets
+                                if a.type == AssetType.LOCATION_REFERENCE.value
+                                and Path(a.file_path).exists()
+                            ]
+
+                            # Character & Location Name Resolver
                             def resolve_character_match(raw_name: str, char_list: list):
                                 if not raw_name or not char_list:
                                     return None
@@ -639,17 +652,14 @@ def render_images_page():
                                         return str(item["name"])
                                     return str(item)
 
-                                # 1. Exact match
                                 for c in char_list:
                                     c_name = get_c_name(c).lower().strip()
                                     if c_name == r_clean:
                                         return c
-                                # 2. Substring match
                                 for c in char_list:
                                     c_low = get_c_name(c).lower().strip()
                                     if r_clean in c_low or c_low in r_clean:
                                         return c
-                                # 3. Token match (e.g. "Lucy" in "Lucy Vance")
                                 r_tokens = [t for t in r_clean.replace("(", " ").replace(")", " ").replace("-", " ").split() if len(t) > 1]
                                 for c in char_list:
                                     c_tokens = [t for t in get_c_name(c).lower().replace("(", " ").replace(")", " ").replace("-", " ").split() if len(t) > 1]
@@ -657,39 +667,28 @@ def render_images_page():
                                         return c
                                 return None
 
-                            conditioning_refs = []
-                            ref_descriptions = []
-                            missing_master_chars = []
-
-                            # Resolve Character Masters
+                            # Determine smart defaults for character references
+                            default_char_ref_ids = []
+                            missing_chars = []
                             for ch_name in (shot.characters or []):
                                 matched_char = resolve_character_match(ch_name, characters)
                                 if matched_char:
-                                    # Check master reference
-                                    m_asset = None
+                                    # Check master reference first
                                     if matched_char.master_reference_asset_id:
-                                        m_asset = AssetService.get_asset(db, matched_char.master_reference_asset_id)
-                                    
-                                    # Fallback: Look up any generated character asset for this character
-                                    if not m_asset or not Path(m_asset.file_path).exists():
-                                        fallback_char_asset = db.query(Asset).filter(
-                                            Asset.project_id == project.id,
-                                            Asset.type.in_([AssetType.CHARACTER_REFERENCE.value, AssetType.CHARACTER_SHEET.value])
-                                        ).order_by(Asset.created_at.desc()).all()
-                                        for cand in fallback_char_asset:
-                                            if is_for_character(cand, matched_char) and Path(cand.file_path).exists():
-                                                m_asset = cand
-                                                AssetService.set_character_master_reference(db, matched_char.id, cand.id)
-                                                break
-
-                                    if m_asset and Path(m_asset.file_path).exists():
-                                        with open(m_asset.file_path, "rb") as rf:
-                                            conditioning_refs.append(rf.read())
-                                            ref_descriptions.append(f"🔒 **{matched_char.name}** Master Face (Asset `{m_asset.id[:8]}`)")
+                                        m_cand = next((a for a in char_ref_assets if a.id == matched_char.master_reference_asset_id), None)
+                                        if m_cand and m_cand.id not in default_char_ref_ids:
+                                            default_char_ref_ids.append(m_cand.id)
                                     else:
-                                        missing_master_chars.append(matched_char)
+                                        # Fallback to latest asset for this character
+                                        c_cand = next((a for a in char_ref_assets if is_for_character(a, matched_char)), None)
+                                        if c_cand and c_cand.id not in default_char_ref_ids:
+                                            default_char_ref_ids.append(c_cand.id)
+                                            AssetService.set_character_master_reference(db, matched_char.id, c_cand.id)
+                                        elif not any(is_for_character(a, matched_char) for a in char_ref_assets):
+                                            missing_chars.append(matched_char)
 
-                            # Resolve Location Master
+                            # Determine smart defaults for location references
+                            default_loc_ref_ids = []
                             matched_loc = None
                             if getattr(active_scene, "location_id", None):
                                 matched_loc = LocationService.get_location(db, active_scene.location_id)
@@ -697,7 +696,6 @@ def render_images_page():
                                 for loc_item in locations:
                                     l_low = loc_item.name.lower().strip()
                                     if (l_low in (active_scene.title or "").lower() or 
-                                        l_low in (active_scene.summary or "").lower() or 
                                         l_low in (shot.image_prompt or "").lower() or 
                                         l_low in (shot.action or "").lower()):
                                         matched_loc = loc_item
@@ -706,34 +704,96 @@ def render_images_page():
                                     matched_loc = locations[0]
 
                             if matched_loc:
-                                loc_m_asset = None
                                 if matched_loc.master_reference_asset_id:
-                                    loc_m_asset = AssetService.get_asset(db, matched_loc.master_reference_asset_id)
-                                
-                                # Fallback: Look up any generated location asset
-                                if not loc_m_asset or not Path(loc_m_asset.file_path).exists():
-                                    cand_locs = db.query(Asset).filter(
-                                        Asset.project_id == project.id,
-                                        Asset.type == AssetType.LOCATION_REFERENCE.value
-                                    ).order_by(Asset.created_at.desc()).all()
-                                    for cand in cand_locs:
-                                        if is_for_location(cand, matched_loc) and Path(cand.file_path).exists():
-                                            loc_m_asset = cand
-                                            AssetService.set_location_master_reference(db, matched_loc.id, cand.id)
+                                    l_cand = next((a for a in loc_ref_assets if a.id == matched_loc.master_reference_asset_id), None)
+                                    if l_cand and l_cand.id not in default_loc_ref_ids:
+                                        default_loc_ref_ids.append(l_cand.id)
+                                else:
+                                    l_cand = next((a for a in loc_ref_assets if is_for_location(a, matched_loc)), None)
+                                    if l_cand and l_cand.id not in default_loc_ref_ids:
+                                        default_loc_ref_ids.append(l_cand.id)
+                                        AssetService.set_location_master_reference(db, matched_loc.id, l_cand.id)
+
+                            # 2. INTERACTIVE REFERENCE IMAGE SELECTOR
+                            st.markdown("---")
+                            st.markdown("#### 🎭 Select Visual Reference Plates (Face & Location Lock)")
+                            st.caption("Choose which character faces and location concepts to pass into the AI image conditioning pipeline.")
+
+                            # Build friendly format functions
+                            def get_char_asset_label(aid: str) -> str:
+                                asset_obj = next((a for a in char_ref_assets if a.id == aid), None)
+                                if not asset_obj:
+                                    return aid[:8]
+                                params = asset_obj.parameters if isinstance(asset_obj.parameters, dict) else {}
+                                cname = params.get("character_name")
+                                if not cname:
+                                    # find character by matching
+                                    for c in characters:
+                                        if is_for_character(asset_obj, c):
+                                            cname = c.name
                                             break
+                                cname = cname or "Character"
+                                preset = params.get("preset_name", asset_obj.type)
+                                is_m = any(c.master_reference_asset_id == asset_obj.id for c in characters)
+                                return f"👤 {cname} — {preset} (`{asset_obj.id[:8]}`)" + (" ⭐ MASTER" if is_m else "")
 
-                                if loc_m_asset and Path(loc_m_asset.file_path).exists():
-                                    ref_descriptions.append(f"📍 **{matched_loc.name}** Environment (Asset `{loc_m_asset.id[:8]}`)")
+                            def get_loc_asset_label(aid: str) -> str:
+                                asset_obj = next((a for a in loc_ref_assets if a.id == aid), None)
+                                if not asset_obj:
+                                    return aid[:8]
+                                params = asset_obj.parameters if isinstance(asset_obj.parameters, dict) else {}
+                                lname = params.get("location_name")
+                                if not lname:
+                                    for l in locations:
+                                        if is_for_location(asset_obj, l):
+                                            lname = l.name
+                                            break
+                                lname = lname or "Location"
+                                preset = params.get("preset_name", asset_obj.type)
+                                is_m = any(l.master_reference_asset_id == asset_obj.id for l in locations)
+                                return f"📍 {lname} — {preset} (`{asset_obj.id[:8]}`)" + (" ⭐ MASTER" if is_m else "")
 
-                            # Display Conditioning Summary
-                            if ref_descriptions:
-                                st.success(f"**Active Visual Anchors:**\n- " + "\n- ".join(ref_descriptions))
+                            # Character References Multiselect
+                            char_asset_ids = [a.id for a in char_ref_assets]
+                            selected_char_ids = st.multiselect(
+                                "👤 Character Reference Images (Face Lock)",
+                                options=char_asset_ids,
+                                default=[aid for aid in default_char_ref_ids if aid in char_asset_ids],
+                                format_func=get_char_asset_label,
+                                key=f"sel_char_refs_{shot.id}"
+                            )
+
+                            # Location References Multiselect
+                            loc_asset_ids = [a.id for a in loc_ref_assets]
+                            selected_loc_ids = st.multiselect(
+                                "📍 Location Reference Images (Environment Lock)",
+                                options=loc_asset_ids,
+                                default=[aid for aid in default_loc_ref_ids if aid in loc_asset_ids],
+                                format_func=get_loc_asset_label,
+                                key=f"sel_loc_refs_{shot.id}"
+                            )
+
+                            all_selected_ref_ids = selected_char_ids + selected_loc_ids
+
+                            # Render Visual Thumbnail Gallery of Selected References
+                            if all_selected_ref_ids:
+                                st.markdown("**Selected Reference Plates for this Shot:**")
+                                thumb_cols = st.columns(min(len(all_selected_ref_ids), 4))
+                                for t_idx, ref_aid in enumerate(all_selected_ref_ids):
+                                    t_col = thumb_cols[t_idx % min(len(all_selected_ref_ids), 4)]
+                                    ref_obj = next((a for a in all_project_assets if a.id == ref_aid), None)
+                                    if ref_obj and Path(ref_obj.file_path).exists():
+                                        with t_col:
+                                            st.image(ref_obj.file_path, use_container_width=True)
+                                            t_label = get_char_asset_label(ref_aid) if ref_obj.type in [AssetType.CHARACTER_REFERENCE.value, AssetType.CHARACTER_SHEET.value] else get_loc_asset_label(ref_aid)
+                                            st.caption(t_label)
                             else:
-                                st.info("ℹ️ No master character face references found; generating from raw prompt.")
+                                st.warning("⚠️ No reference images selected. FLUX will generate from the text prompt alone without face conditioning.")
 
-                            if missing_master_chars:
-                                for mc in missing_master_chars:
-                                    st.warning(f"⚠️ `{mc.name}` has no locked master reference portrait yet.")
+                            # Quick generator for missing characters
+                            if missing_chars:
+                                for mc in missing_chars:
+                                    st.info(f"💡 `{mc.name}` has no generated poses yet.")
                                     if st.button(f"✨ Quick-Generate Master Portrait for {mc.name}", key=f"qgen_m_{mc.id}", use_container_width=True):
                                         with st.spinner(f"Generating Master Portrait for {mc.name} on {provider_choice.upper()}..."):
                                             c_spec = CharacterSheetService.compile_prompt(mc, "MASTER_PORTRAIT")
@@ -766,7 +826,8 @@ def render_images_page():
                                             st.success(f"Locked {mc.name}'s master face to asset `{q_asset.id[:8]}`!")
                                             st.rerun()
 
-                            # 2. ASPECT RATIO & PROMPT CONTROLS
+                            # 3. ASPECT RATIO & PROMPT CONTROLS
+                            st.markdown("---")
                             aspect = project.aspect_ratio or "16:9"
                             if "9:16" in aspect:
                                 def_w, def_h = 768, 1344
@@ -782,7 +843,7 @@ def render_images_page():
                             kf_prompt = st.text_area(
                                 "Compiled Keyframe Image Prompt",
                                 value=shot.image_prompt or "Cinematic shot...",
-                                height=120,
+                                height=110,
                                 key=f"kf_prompt_{shot.id}"
                             )
 
@@ -795,7 +856,15 @@ def render_images_page():
                                 st.text_input("Aspect Resolution", value=f"{def_w}x{def_h} ({aspect})", disabled=True)
 
                             if st.button("🚀 Generate Face-Locked Keyframe", type="primary", use_container_width=True, key=f"gen_kf_{shot.id}"):
-                                with st.spinner(f"Generating Keyframe for Shot {shot.shot_number:02d} on {provider_choice.upper()}..."):
+                                with st.spinner(f"Generating Keyframe for Shot {shot.shot_number:02d} on {provider_choice.upper()} using {len(all_selected_ref_ids)} reference plates..."):
+                                    # Load raw bytes of all selected references
+                                    conditioning_bytes = []
+                                    for aid in all_selected_ref_ids:
+                                        a_obj = next((a for a in all_project_assets if a.id == aid), None)
+                                        if a_obj and Path(a_obj.file_path).exists():
+                                            with open(a_obj.file_path, "rb") as rf:
+                                                conditioning_bytes.append(rf.read())
+
                                     provider = get_image_provider(provider_choice)
                                     req = ImageGenerationRequest(
                                         prompt=kf_prompt,
@@ -803,7 +872,7 @@ def render_images_page():
                                         height=def_h,
                                         num_inference_steps=kf_steps,
                                         seed=int(kf_seed),
-                                        reference_images=conditioning_refs
+                                        reference_images=conditioning_bytes
                                     )
                                     res = provider.generate(req)
                                     saved_kf = AssetService.save_image_asset(
@@ -820,7 +889,7 @@ def render_images_page():
                                             "shot_number": shot.shot_number,
                                             "scene_id": active_scene.id,
                                             "scene_number": active_scene.scene_number,
-                                            "conditioned_characters": [c.name for c in characters if resolve_character_match(c.name, shot.characters or [])]
+                                            "selected_reference_ids": all_selected_ref_ids
                                         }
                                     )
                                     AssetService.link_shot_keyframe(db, shot.id, saved_kf.id)
