@@ -34,12 +34,17 @@ def test_mock_audio_generation():
     assert res.mime_type == "audio/wav"
     assert res.duration_seconds > 1.0
 
+import uuid
+
 def test_synthesize_shot_dialogue():
     with get_db_session() as db:
-        # Create test project, character, and shot
-        project = Project(id="proj-audio-test", title="Audio Test Movie", genre="Horror")
-        char = Character(id="char-audio-1", project_id=project.id, name="Lucy Vance", gender="Female", role="Protagonist", voice_description="af_sarah")
-        shot = Shot(id="shot-audio-1", scene_id="sc-dummy", shot_number=1, dialogue="Someone is watching us.", duration_seconds=2.0)
+        p_id = f"proj-audio-{uuid.uuid4().hex[:8]}"
+        c_id = f"char-audio-{uuid.uuid4().hex[:8]}"
+        s_id = f"shot-audio-{uuid.uuid4().hex[:8]}"
+
+        project = Project(id=p_id, title="Audio Test Movie", genre="Horror")
+        char = Character(id=c_id, project_id=project.id, name="Lucy Vance", gender="Female", role="Protagonist", voice_description="af_sarah")
+        shot = Shot(id=s_id, scene_id="sc-dummy", shot_number=1, dialogue="Someone is watching us.", duration_seconds=2.0)
 
         db.add(project)
         db.add(char)

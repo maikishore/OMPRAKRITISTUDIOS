@@ -20,6 +20,7 @@ from providers.image.base import ImageGenerationRequest
 from core.enums import AssetType, ShotStatus
 from core.models import Asset
 from core.character_sheet_service import CharacterSheetService
+from core.location_sheet_service import LocationSheetService
 
 st.set_page_config(page_title="Image Generation & Asset Gallery | MicroDrama Studio", page_icon="🖼️", layout="wide")
 
@@ -331,46 +332,85 @@ def render_images_page():
                                             st.rerun()
 
         # -------------------------------------------------------------
-        # TAB 2: LOCATION MASTER REFERENCES
+        # TAB 2: LOCATION MASTER REFERENCES & STAGING SUITE
         # -------------------------------------------------------------
         with tab_locs:
-            st.subheader("📍 Location Environments & Concept Stills")
-            st.caption("Generate master architectural concept stills for staging environments to maintain spatial and lighting continuity.")
+            st.subheader("📍 Location Environments & Spatial Staging Suite")
+            st.caption("Generate multi-perspective establishing stills, reverse angles, emergency blackout states, and CCTV views for spatial continuity in downstream video models.")
 
             if not locations:
                 st.info("No locations found. Please configure locations on Page 03 Locations.")
             else:
                 loc_map = {l.id: l.name for l in locations}
-                selected_loc_id = st.selectbox("Select Location to Generate", options=list(loc_map.keys()), format_func=lambda x: loc_map[x], key="loc_select_box")
+                selected_loc_id = st.selectbox("Select Active Location", options=list(loc_map.keys()), format_func=lambda x: loc_map[x], key="loc_select_box")
                 loc = LocationService.get_location(db, selected_loc_id)
 
                 if loc:
-                    l_col1, l_col2 = st.columns([2, 2])
-                    with l_col1:
-                        st.markdown(f"**Environment:** {loc.name}")
-                        st.markdown(f"**Architecture:** {loc.architecture or 'Modern commercial'}")
-                        st.markdown(f"**Lighting:** {loc.lighting or 'Commercial lighting'}")
+                    # 1. LOCATION HEADER OVERVIEW & MASTER BANNER
+                    with st.container(border=True):
+                        lh_c1, lh_c2, lh_c3 = st.columns([1.5, 2.5, 1.5])
+                        with lh_c1:
+                            st.markdown(f"### {loc.name}")
+                            st.caption(f"**Type:** Spatial Environment")
+                        with lh_c2:
+                            st.markdown(f"**Architecture:** {loc.architecture or 'Modern commercial'}")
+                            st.markdown(f"**Materials / Textures:** {getattr(loc, 'materials', 'Glass, steel, polished stone')}")
+                            st.markdown(f"**Baseline Lighting:** {loc.lighting or 'Commercial lighting'}")
+                        with lh_c3:
+                            master_loc_asset = AssetService.get_asset(db, loc.master_reference_asset_id) if loc.master_reference_asset_id else None
+                            if master_loc_asset and Path(master_loc_asset.file_path).exists():
+                                st.success("⭐ **Master Environment Set**")
+                                st.image(master_loc_asset.file_path, width=120)
+                            else:
+                                st.warning("⚠️ No Master Still Set")
+
+                    st.markdown("---")
+
+                    # 2. ENVIRONMENT STAGING PRESET GENERATOR
+                    st.markdown("#### 🏛️ Environment Angle & Mood Generator")
+                    with st.container(border=True):
+                        loc_presets = LocationSheetService.list_presets()
+                        loc_preset_map = {p["key"]: f"{p['name']} ({p['aspect_ratio']})" for p in loc_presets}
+
+                        lp_sel_col, lp_desc_col = st.columns([2, 2])
+                        with lp_sel_col:
+                            selected_loc_preset_key = st.selectbox(
+                                "Select Spatial Angle / Lighting State Preset",
+                                options=list(loc_preset_map.keys()),
+                                format_func=lambda x: loc_preset_map[x],
+                                key=f"loc_preset_sel_{loc.id}"
+                            )
+                        with lp_desc_col:
+                            lp_info = next((p for p in loc_presets if p["key"] == selected_loc_preset_key), {})
+                            st.info(f"💡 {lp_info.get('description', '')}")
+
+                        loc_compiled = LocationSheetService.compile_prompt(loc, selected_loc_preset_key, default_aspect_ratio=project.aspect_ratio or "16:9")
 
                         loc_prompt = st.text_area(
-                            "Environment Concept Prompt",
-                            value=loc.visual_identity or f"Wide architectural concept photograph of {loc.name}, {loc.architecture}, {loc.materials}, lighting: {loc.lighting}, cinematic composition, 8k resolution, raw photo.",
-                            height=120,
-                            key=f"loc_prompt_{loc.id}"
+                            f"Prompt for {loc_compiled['preset_name']}",
+                            value=loc_compiled["prompt"],
+                            height=100,
+                            key=f"loc_prompt_{loc.id}_{selected_loc_preset_key}"
                         )
 
-                        lp_c1, lp_c2 = st.columns(2)
-                        with lp_c1:
-                            loc_seed = st.number_input("Seed", min_value=1, max_value=9999999, value=108, key=f"loc_seed_{loc.id}")
-                        with lp_c2:
-                            loc_steps = st.slider("Inference Steps", min_value=4, max_value=35, value=28 if provider_choice == "modal" else 4, key=f"loc_steps_{loc.id}")
+                        l_ctrl1, l_ctrl2, l_ctrl3, l_ctrl4 = st.columns([1.2, 1.2, 1.2, 1.5])
+                        with l_ctrl1:
+                            loc_seed = st.number_input("Seed", min_value=1, max_value=9999999, value=108, key=f"loc_seed_{loc.id}_{selected_loc_preset_key}")
+                        with l_ctrl2:
+                            loc_steps = st.slider("Inference Steps", min_value=4, max_value=35, value=28 if provider_choice == "modal" else 4, key=f"loc_steps_{loc.id}_{selected_loc_preset_key}")
+                        with l_ctrl3:
+                            st.text_input("Resolution", value=f"{loc_compiled['width']}x{loc_compiled['height']}", disabled=True, key=f"loc_res_{loc.id}_{selected_loc_preset_key}")
+                        with l_ctrl4:
+                            st.write("") # spacing
+                            gen_loc_btn = st.button("✨ Render Environment Angle", type="primary", use_container_width=True, key=f"gen_loc_btn_{loc.id}_{selected_loc_preset_key}")
 
-                        if st.button("✨ Generate Location Reference", type="primary", use_container_width=True, key=f"gen_btn_loc_{loc.id}"):
-                            with st.spinner(f"Generating concept still for {loc.name} using {provider_choice.upper()}..."):
+                        if gen_loc_btn:
+                            with st.spinner(f"Rendering {loc_compiled['preset_name']} for {loc.name} on {provider_choice.upper()}..."):
                                 provider = get_image_provider(provider_choice)
                                 req = ImageGenerationRequest(
                                     prompt=loc_prompt,
-                                    width=1024,
-                                    height=576 if project.aspect_ratio == "16:9" else 1344,
+                                    width=loc_compiled["width"],
+                                    height=loc_compiled["height"],
                                     num_inference_steps=loc_steps,
                                     seed=int(loc_seed)
                                 )
@@ -384,60 +424,166 @@ def render_images_page():
                                     seed=int(loc_seed),
                                     provider=provider_choice,
                                     model="FLUX.1 [dev]" if provider_choice == "modal" else "FLUX.1 [schnell]",
-                                    parameters={"location_id": loc.id, "location_name": loc.name}
+                                    parameters={
+                                        "location_id": loc.id,
+                                        "location_name": loc.name,
+                                        "preset_key": selected_loc_preset_key,
+                                        "preset_name": loc_compiled["preset_name"]
+                                    }
                                 )
-                                st.success(f"Generated and stored environment reference `{saved_asset.id[:8]}`!")
+                                if selected_loc_preset_key == "MASTER_WIDE" and not loc.master_reference_asset_id:
+                                    AssetService.set_location_master_reference(db, loc.id, saved_asset.id)
+                                st.success(f"Generated & Saved `{saved_asset.id[:8]}` ({loc_compiled['preset_name']})!")
                                 st.rerun()
 
-                    with l_col2:
-                        st.markdown("#### Master Location Reference Status")
-                        master_loc_asset = AssetService.get_asset(db, loc.master_reference_asset_id) if loc.master_reference_asset_id else None
-
-                        if master_loc_asset and Path(master_loc_asset.file_path).exists():
-                            st.image(master_loc_asset.file_path, caption=f"⭐ APPROVED MASTER ENVIRONMENT: {loc.name}", use_container_width=True)
-                            st.success("✅ This image is active as the master environment reference.")
-                            if st.button("🗑️ Delete Master Reference", key=f"del_master_loc_{master_loc_asset.id}"):
-                                AssetService.delete_asset(db, master_loc_asset.id)
-                                st.success(f"Deleted master location reference for {loc.name}.")
+                        # Batch suite expander
+                        with st.expander("⚡ Batch Render: Core Location Suite (Master + Reverse + Blackout + CCTV)"):
+                            st.caption("Automatically generates all 4 key staging perspectives sequentially for complete video world-building.")
+                            if st.button("🚀 Render All 4 Staging Views in Sequence", key=f"batch_loc_suite_{loc.id}"):
+                                core_loc_keys = ["MASTER_WIDE", "REVERSE_180", "EMERGENCY_BLACKOUT", "CCTV_SURVEILLANCE"]
+                                progress_bar = st.progress(0)
+                                provider = get_image_provider(provider_choice)
+                                for idx, l_key in enumerate(core_loc_keys):
+                                    l_spec = LocationSheetService.compile_prompt(loc, l_key, default_aspect_ratio=project.aspect_ratio or "16:9")
+                                    with st.spinner(f"Generating {l_spec['preset_name']} ({idx+1}/{len(core_loc_keys)})..."):
+                                        r = provider.generate(ImageGenerationRequest(
+                                            prompt=l_spec["prompt"],
+                                            width=l_spec["width"],
+                                            height=l_spec["height"],
+                                            num_inference_steps=loc_steps,
+                                            seed=int(loc_seed) + idx * 10
+                                        ))
+                                        sa = AssetService.save_image_asset(
+                                            db=db,
+                                            project_id=project.id,
+                                            asset_type=AssetType.LOCATION_REFERENCE.value,
+                                            image_bytes=r.image_bytes,
+                                            prompt=l_spec["prompt"],
+                                            seed=int(loc_seed) + idx * 10,
+                                            provider=provider_choice,
+                                            model="FLUX.1 [dev]" if provider_choice == "modal" else "FLUX.1 [schnell]",
+                                            parameters={
+                                                "location_id": loc.id,
+                                                "location_name": loc.name,
+                                                "preset_key": l_key,
+                                                "preset_name": l_spec["preset_name"]
+                                            }
+                                        )
+                                        if l_key == "MASTER_WIDE" and not loc.master_reference_asset_id:
+                                            AssetService.set_location_master_reference(db, loc.id, sa.id)
+                                    progress_bar.progress((idx + 1) / len(core_loc_keys))
+                                st.success(f"🎉 Generated full Environment Staging Suite for {loc.name}!")
                                 st.rerun()
-                        else:
-                            st.warning("⚠️ No approved master reference asset set for this location.")
 
-                        # Show recent candidate location stills (filtered for this location only)
-                        all_loc_assets = db.query(Asset).filter(
-                            Asset.project_id == project.id,
-                            Asset.type == AssetType.LOCATION_REFERENCE.value
-                        ).order_by(Asset.created_at.desc()).all() if locations else []
+                    st.markdown("---")
 
-                        def is_for_location(a: Asset, l) -> bool:
-                            params = a.parameters if isinstance(a.parameters, dict) else {}
-                            if params.get("location_id") == l.id:
-                                return True
-                            if l.master_reference_asset_id == a.id:
-                                return True
-                            if params.get("location_name", "").lower() == l.name.lower():
-                                return True
-                            if l.name.lower() in (a.prompt or "").lower():
-                                return True
-                            return False
+                    # 3. LOCATION STAGING MATRIX & INDIVIDUAL ANGLE RE-GENERATION
+                    all_loc_assets = db.query(Asset).filter(
+                        Asset.project_id == project.id,
+                        Asset.type == AssetType.LOCATION_REFERENCE.value
+                    ).order_by(Asset.created_at.desc()).all() if locations else []
 
-                        recent_loc_assets = [a for a in all_loc_assets if is_for_location(a, loc)][:6]
+                    def is_for_location(a: Asset, l) -> bool:
+                        params = a.parameters if isinstance(a.parameters, dict) else {}
+                        if params.get("location_id") == l.id:
+                            return True
+                        if l.master_reference_asset_id == a.id:
+                            return True
+                        if params.get("location_name", "").lower() == l.name.lower():
+                            return True
+                        if l.name.lower() in (a.prompt or "").lower():
+                            return True
+                        return False
 
-                        if recent_loc_assets:
-                            st.markdown("##### Candidate Location Images")
-                            for cand in recent_loc_assets:
-                                if Path(cand.file_path).exists():
-                                    st.image(cand.file_path, width=220)
-                                    cand_l1, cand_l2 = st.columns([3, 1])
-                                    with cand_l1:
-                                        if st.button(f"⭐ Set Master ({cand.id[:6]})", key=f"set_master_loc_{cand.id}"):
-                                            AssetService.set_location_master_reference(db, loc.id, cand.id)
-                                            st.success(f"Locked {loc.name}'s master environment to asset `{cand.id[:8]}`!")
-                                            st.rerun()
-                                    with cand_l2:
-                                        if st.button("🗑️", key=f"del_loc_cand_{cand.id}", help="Delete this image"):
-                                            AssetService.delete_asset(db, cand.id)
-                                            st.success(f"Deleted asset {cand.id[:6]}.")
+                    loc_assets = [a for a in all_loc_assets if is_for_location(a, loc)]
+
+                    st.markdown(f"#### 🏛️ Generated Staging Angles & Stills for {loc.name} ({len(loc_assets)} Assets)")
+                    st.caption(f"Review, set master environment, or click **'🔄 Edit Prompt & Regenerate'** on any image to re-render that specific perspective for {loc.name}.")
+
+                    if not loc_assets:
+                        st.info(f"No staging stills generated yet for {loc.name}. Use the studio above to generate presets.")
+                    else:
+                        cols = st.columns(3)
+                        for idx, asset in enumerate(loc_assets):
+                            col = cols[idx % 3]
+                            with col:
+                                with st.container(border=True):
+                                    if Path(asset.file_path).exists():
+                                        st.image(asset.file_path, use_container_width=True)
+                                        
+                                        p_label = (asset.parameters or {}).get("preset_name", asset.type) if isinstance(asset.parameters, dict) else asset.type
+                                        is_master = (loc.master_reference_asset_id == asset.id)
+                                        
+                                        st.markdown(f"**{p_label}**" + (" `⭐ MASTER`" if is_master else ""))
+                                        st.caption(f"ID: `{asset.id[:8]}` | Seed: `{asset.seed}` | {asset.width}x{asset.height}")
+
+                                        # Action Row 1: Master, Download, Delete
+                                        lb_col1, lb_col2, lb_col3 = st.columns([1.5, 1, 1])
+                                        with lb_col1:
+                                            if not is_master:
+                                                if st.button("⭐ Set Master", key=f"set_ml_{asset.id}", use_container_width=True):
+                                                    AssetService.set_location_master_reference(db, loc.id, asset.id)
+                                                    st.success(f"Locked {loc.name}'s master environment to asset `{asset.id[:8]}`!")
+                                                    st.rerun()
+                                            else:
+                                                st.button("✅ Active", key=f"active_ml_{asset.id}", disabled=True, use_container_width=True)
+                                        with lb_col2:
+                                            with open(asset.file_path, "rb") as laf:
+                                                st.download_button("⬇️", data=laf, file_name=f"{loc.name}_{asset.id[:6]}.png", mime="image/png", key=f"dl_loc_{asset.id}", use_container_width=True)
+                                        with lb_col3:
+                                            if st.button("🗑️", key=f"del_loc_{asset.id}", help="Delete this angle", use_container_width=True):
+                                                AssetService.delete_asset(db, asset.id)
+                                                st.success(f"Deleted staging asset `{asset.id[:8]}`.")
+                                                st.rerun()
+
+                                        # Action Row 2: Prompt-based Individual Regeneration Expander
+                                        with st.expander("🔄 Edit Prompt & Regenerate This Perspective"):
+                                            custom_loc_regen_prompt = st.text_area(
+                                                "Custom Prompt for this Perspective",
+                                                value=asset.prompt or "",
+                                                height=90,
+                                                key=f"loc_regen_prompt_{asset.id}"
+                                            )
+                                            lrg_c1, lrg_c2 = st.columns(2)
+                                            with lrg_c1:
+                                                loc_regen_seed = st.number_input("New Seed", min_value=1, max_value=9999999, value=(asset.seed or 108) + 1, key=f"lrg_seed_{asset.id}")
+                                            with lrg_c2:
+                                                loc_regen_steps = st.slider("Steps", min_value=4, max_value=35, value=28 if provider_choice == "modal" else 4, key=f"lrg_steps_{asset.id}")
+
+                                            if st.button("🚀 Re-Render This Perspective", type="primary", use_container_width=True, key=f"btn_loc_regen_{asset.id}"):
+                                                with st.spinner(f"Regenerating environment angle on {provider_choice.upper()}..."):
+                                                    provider = get_image_provider(provider_choice)
+                                                    r_req = ImageGenerationRequest(
+                                                        prompt=custom_loc_regen_prompt,
+                                                        width=asset.width or 1024,
+                                                        height=asset.height or 576,
+                                                        num_inference_steps=loc_regen_steps,
+                                                        seed=int(loc_regen_seed)
+                                                    )
+                                                    r_res = provider.generate(r_req)
+                                                    # Save as new asset variation tagged to this location
+                                                    lr_params = dict(asset.parameters or {})
+                                                    lr_params["location_id"] = loc.id
+                                                    lr_params["location_name"] = loc.name
+                                                    new_loc_asset = AssetService.save_image_asset(
+                                                        db=db,
+                                                        project_id=project.id,
+                                                        asset_type=asset.type,
+                                                        image_bytes=r_res.image_bytes,
+                                                        prompt=custom_loc_regen_prompt,
+                                                        seed=int(loc_regen_seed),
+                                                        provider=provider_choice,
+                                                        model="FLUX.1 [dev]" if provider_choice == "modal" else "FLUX.1 [schnell]",
+                                                        parameters=lr_params
+                                                    )
+                                                    if is_master:
+                                                        AssetService.set_location_master_reference(db, loc.id, new_loc_asset.id)
+                                                    st.success(f"Regenerated perspective as `{new_loc_asset.id[:8]}`!")
+                                                    st.rerun()
+                                    else:
+                                        st.warning(f"File missing on disk: `{asset.id[:8]}`")
+                                        if st.button("🗑️ Clean Record", key=f"del_orphan_l_{asset.id}"):
+                                            AssetService.delete_asset(db, asset.id)
                                             st.rerun()
 
         # -------------------------------------------------------------
