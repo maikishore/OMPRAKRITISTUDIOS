@@ -2,7 +2,6 @@
 
 Supports:
 - Qwen3-TTS-12Hz-1.7B-CustomVoice with natural language `instruct` emotion control
-- Qwen3-TTS-12Hz-1.7B-VoiceDesign for creating new character voices from text descriptions
 - 10-minute warm keep-alive on NVIDIA L4 GPU
 
 Deploy with: `modal deploy modal/audio_worker.py`
@@ -21,7 +20,7 @@ try:
         modal.Image.debian_slim(python_version="3.11")
         .apt_install("git", "ffmpeg", "libsndfile1")
         .pip_install(
-            "qwen-tts>=0.1.0",
+            "qwen-tts>=0.1.1",
             "torch>=2.4.0",
             "torchaudio>=2.4.0",
             "transformers>=4.48.0",
@@ -44,34 +43,30 @@ try:
         scaledown_window=600  # 10 minutes warm keep-alive
     )
     class QwenAudioWorker:
-        """Serverless Qwen3-TTS 1.7B Worker for emotional character dialogue and voice design."""
+        """Serverless Qwen3-TTS 1.7B Worker for emotional character dialogue."""
 
         @modal.enter()
         def load_qwen_tts(self):
             import torch
+            from qwen_tts import Qwen3TTSModel
+
             print("🔊 Initializing Qwen3-TTS 1.7B Pipeline on Modal GPU...")
             self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
-            self.model = None
-
-            try:
-                from qwen_tts import Qwen3TTSModel
-                model_id = "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
-                print(f"Loading {model_id} onto {self.device}...")
-                self.model = Qwen3TTSModel.from_pretrained(
-                    model_id,
-                    device_map=self.device,
-                    dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32
-                )
-                print("✅ Qwen3-TTS 1.7B CustomVoice loaded successfully!")
-            except Exception as e:
-                print(f"⚠️ Qwen3-TTS direct load note: {e}")
-                self.model = None
+            model_id = "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
+            print(f"Loading {model_id} onto {self.device}...")
+            
+            self.model = Qwen3TTSModel.from_pretrained(
+                model_id,
+                device_map=self.device,
+                dtype=torch.bfloat16 if torch.cuda.is_available() else torch.float32
+            )
+            print("✅ Qwen3-TTS 1.7B CustomVoice loaded successfully!")
 
         @modal.method()
         def generate_speech(
             self,
             text: str,
-            voice: str = "Vivian",
+            voice: str = "vivian",
             instruct: Optional[str] = None,
             speed: float = 1.0
         ) -> bytes:
@@ -79,81 +74,47 @@ try:
             import soundfile as sf
             import numpy as np
 
-            # Map internal voice keys to Qwen speaker names
-            speaker_name = voice.replace("qwen_", "").capitalize()
-            if speaker_name in ["Sarah", "Lucy"]:
-                speaker_name = "Vivian"
-            elif speaker_name in ["Adam", "David"]:
-                speaker_name = "Eric"
-            elif speaker_name in ["Michael", "Marcus"]:
-                speaker_name = "Uncle_Martin"
+            # Normalize speaker name to lowercase Qwen supported speakers
+            v_clean = voice.replace("qwen_", "").lower()
+            if v_clean in ["sarah", "lucy"]:
+                v_clean = "vivian"
+            elif v_clean in ["adam", "david"]:
+                v_clean = "eric"
+            elif v_clean in ["michael", "marcus", "uncle martin"]:
+                v_clean = "uncle_martin"
+            elif v_clean not in ["vivian", "eric", "uncle_martin", "serena", "ryan", "elena", "dylan"]:
+                v_clean = "vivian"
 
-            print(f"🎙️ Qwen3-TTS Generating speech for speaker '{speaker_name}' | Instruct: '{instruct}' | Text: {text[:60]}...")
+            print(f"🎙️ Qwen3-TTS Generating speech for speaker '{v_clean}' | Instruct: '{instruct}' | Text: {text[:60]}...")
 
-            if self.model:
-                try:
-                    # Execute Qwen3-TTS custom voice inference with instruct
-                    wavs, sr = self.model.generate_custom_voice(
-                        text=text,
-                        language="English",
-                        speaker=speaker_name,
-                        instruct=instruct or "Speak with authentic emotion and dramatic tone"
-                    )
-                    
-                    if hasattr(wavs, "cpu"):
-                        audio_np = wavs.cpu().numpy()
-                    elif isinstance(wavs, list) and len(wavs) > 0:
-                        audio_np = wavs[0].cpu().numpy() if hasattr(wavs[0], "cpu") else np.array(wavs[0])
-                    else:
-                        audio_np = np.array(wavs)
+            # Execute Qwen3-TTS inference
+            wavs, sr = self.model.generate_custom_voice(
+                text=text.strip(),
+                language="English",
+                speaker=v_clean,
+                instruct=instruct or "Speak with dramatic presence and authentic emotional tension"
+            )
 
-                    if audio_np.ndim > 1:
-                        audio_np = audio_np.squeeze()
+            # Extract numpy audio data from returned wavs (list or array)
+            if isinstance(wavs, list) and len(wavs) > 0:
+                audio_np = wavs[0]
+            else:
+                audio_np = wavs
 
-                    buffer = io.BytesIO()
-                    sf.write(buffer, audio_np, sr if sr else 24000, format="WAV")
-                    return buffer.getvalue()
-                except Exception as ex:
-                    print(f"Error during Qwen3-TTS generation ({ex}), generating clean synthetic fallback.")
+            if hasattr(audio_np, "cpu"):
+                audio_np = audio_np.cpu().numpy()
+            elif not isinstance(audio_np, np.ndarray):
+                audio_np = np.array(audio_np)
 
-            # High-fidelity synthetic fallback WAV with emotion modulation if model is offline
-            import math, struct
-            sample_rate = 24000
-            word_count = max(1, len(text.split()))
-            duration = max(1.5, word_count * (0.32 / speed))
-            num_samples = int(sample_rate * duration)
+            if audio_np.ndim > 1:
+                audio_np = audio_np.squeeze()
 
-            is_male = any(m in speaker_name.lower() for m in ["eric", "martin", "ryan", "dylan", "uncle"])
-            freq = 380.0 if is_male else 580.0
-
-            # Modulate frequency based on emotion
-            if instruct and ("whisper" in instruct.lower() or "terrified" in instruct.lower()):
-                freq *= 0.9
-            elif instruct and ("shout" in instruct.lower() or "urgent" in instruct.lower()):
-                freq *= 1.2
-
-            audio_data = bytearray()
-            for i in range(num_samples):
-                t = float(i) / sample_rate
-                envelope = min(1.0, i / 1000.0) * min(1.0, (num_samples - i) / 1000.0)
-                sample = 0.5 * math.sin(2.0 * math.pi * freq * t) + 0.25 * math.sin(2.0 * math.pi * (freq * 1.5) * t)
-                val = int(sample * envelope * 32767.0)
-                audio_data.extend(struct.pack("<h", max(-32768, min(32767, val))))
-
-            header = bytearray()
-            header.extend(b"RIFF")
-            header.extend(struct.pack("<I", 36 + len(audio_data)))
-            header.extend(b"WAVEfmt ")
-            header.extend(struct.pack("<I", 16))
-            header.extend(struct.pack("<H", 1))
-            header.extend(struct.pack("<H", 1))
-            header.extend(struct.pack("<I", sample_rate))
-            header.extend(struct.pack("<I", sample_rate * 2))
-            header.extend(struct.pack("<H", 2))
-            header.extend(struct.pack("<H", 16))
-            header.extend(b"data")
-            header.extend(struct.pack("<I", len(audio_data)))
-            return bytes(header + audio_data)
+            buffer = io.BytesIO()
+            sample_rate = sr if sr else 24000
+            sf.write(buffer, audio_np, sample_rate, format="WAV")
+            out_bytes = buffer.getvalue()
+            print(f"✅ Qwen3-TTS speech synthesized successfully! Output size: {len(out_bytes)} bytes, Sample Rate: {sample_rate}Hz")
+            return out_bytes
 
 except ImportError:
     pass
