@@ -23,6 +23,7 @@ class Settings:
     LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "cloudflare")
     LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
     LLM_MODEL: str = os.getenv("LLM_MODEL", "@cf/google/gemma-4-26b-a4b-it")
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", os.getenv("LLM_API_KEY", ""))
 
     CLOUDFLARE_ACCOUNT_ID: str = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
     CLOUDFLARE_AUTH_TOKEN: str = os.getenv("CLOUDFLARE_AUTH_TOKEN", "")

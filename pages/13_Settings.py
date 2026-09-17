@@ -128,8 +128,9 @@ with tab_llm:
     with llm_col1:
         st.text_input("Active LLM Provider", value=settings.LLM_PROVIDER, disabled=True)
         st.text_input("Primary Model Name", value=settings.LLM_MODEL, disabled=True)
+    llm_key_present = bool(getattr(settings, "GEMINI_API_KEY", None) or getattr(settings, "LLM_API_KEY", None) or getattr(settings, "CLOUDFLARE_AUTH_TOKEN", None))
     with llm_col2:
-        st.text_input("Gemini API Key Status", value="✅ Configured via environment" if settings.GEMINI_API_KEY else "❌ Missing", disabled=True)
+        st.text_input("LLM API Key / Token Status", value="✅ Configured via environment" if llm_key_present else "❌ Missing", disabled=True)
         st.text_input("Temperature", value="0.7 (Cinematic Creative)", disabled=True)
 
     st.info("💡 To change the LLM model or switch to another provider, update the `.env` configuration file in the project root.")
