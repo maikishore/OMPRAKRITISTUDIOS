@@ -147,15 +147,14 @@ class VoiceService:
         res = provider.generate_speech(req)
 
         # Save audio asset to project storage
-        saved_asset = AssetService.save_image_asset(
+        saved_asset = AssetService.save_audio_asset(
             db=db,
             project_id=project_id,
-            asset_type=AssetType.AUDIO.value,
-            image_bytes=res.audio_bytes, # Raw WAV bytes saved via object store
+            audio_bytes=res.audio_bytes,
             prompt=dialogue_text,
-            seed=42,
             provider=provider_name,
             model="Kokoro-82M",
+            duration=res.duration_seconds,
             parameters={
                 "shot_id": shot_id,
                 "character_id": character.id,
@@ -169,9 +168,33 @@ class VoiceService:
         # Update Shot audio reference and duration if necessary
         shot = db.query(Shot).filter(Shot.id == shot_id).first()
         if shot:
+            refs = list(shot.reference_asset_ids or [])
+            if saved_asset.id not in refs:
+                refs.append(saved_asset.id)
+                shot.reference_asset_ids = refs
             # Sync shot duration to dialogue if dialogue exceeds current shot duration
             if res.duration_seconds > (shot.duration_seconds or 2.0):
-                shot.duration_seconds = round(res.duration_seconds + 0.5, 1) # add 0.5s padding
+                shot.duration_seconds = round(res.duration_seconds + 0.5, 1)  # add 0.5s padding
             db.commit()
 
         return saved_asset
+
+    @classmethod
+    def get_audio_for_shot(cls, db: Session, shot_id: str) -> Optional[Asset]:
+        """Retrieves the latest synthesized audio asset for a given shot."""
+        # Check assets where parameters JSON contains shot_id
+        assets = db.query(Asset).filter(Asset.type == AssetType.AUDIO.value).order_by(Asset.created_at.desc()).all()
+        for a in assets:
+            if a.parameters and a.parameters.get("shot_id") == shot_id:
+                return a
+        return None
+
+    @classmethod
+    def get_dialogue_character(cls, db: Session, project_id: str, character_name: str) -> Optional[Character]:
+        """Finds character by name within project for dialogue assignment."""
+        if not character_name:
+            return None
+        return db.query(Character).filter(
+            Character.project_id == project_id,
+            Character.name.ilike(f"%{character_name.strip()}%")
+        ).first()

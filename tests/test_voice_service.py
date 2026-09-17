@@ -66,3 +66,9 @@ def test_synthesize_shot_dialogue():
         assert saved_asset.type == "AUDIO"
         assert saved_asset.parameters["character_name"] == "Lucy Vance"
         assert saved_asset.parameters["voice_id"] == "af_sarah"
+
+        # Check retrieval
+        retrieved_audio = VoiceService.get_audio_for_shot(db, shot.id)
+        assert retrieved_audio is not None
+        assert retrieved_audio.id == saved_asset.id
+

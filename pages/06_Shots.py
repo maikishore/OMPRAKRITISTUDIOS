@@ -12,16 +12,18 @@ from core.location_service import LocationService
 from core.style_service import StyleService
 from core.scene_service import SceneService
 from core.shot_service import ShotService
+from core.voice_service import VoiceService
+from core.asset_service import AssetService
 from schemas.shot import ShotCreate
 from ai.shot_engine import ShotEngine
 from ai.image_prompt_engine import PromptCompiler
 from core.enums import ShotStatus, ProjectStatus
 
-st.set_page_config(page_title="Shotlist & Prompt Compiler | MicroDrama Studio", page_icon="🎞️", layout="wide")
+st.set_page_config(page_title="Shotlist, Prompts & Audio | MicroDrama Studio", page_icon="🎞️", layout="wide")
 
 def render_shots_page():
-    st.title("🎞️ Shot Breakdown & Deterministic Prompt Compiler")
-    st.caption("Break down scenes into granular 3–10s cinematic shots and synthesize production prompts from the Production Bible.")
+    st.title("🎞️ Shot Breakdown, Deterministic Prompts & Voice Audio")
+    st.caption("Break down scenes into granular cinematic shots, compile production prompts, and synthesize emotional character dialogue audio.")
 
     with get_db_session() as db:
         projects = ProjectService.list_projects(db)
@@ -75,7 +77,6 @@ def render_shots_page():
         # Action Toolbar
         shots = ShotService.list_shots_by_scene(db, scene.id)
         st.markdown("---")
-        btn_col1, btn_col2, btn_col3 = st.columns([2, 2, 1.5])
 
         # Prepare bible dictionaries for compilation
         style_dict = {
@@ -103,6 +104,8 @@ def render_shots_page():
             }
             for c in characters
         ]
+
+        btn_col1, btn_col2, btn_col3, btn_col4 = st.columns([2, 2, 1.5, 2.5])
 
         with btn_col1:
             if st.button(f"🤖 Generate Shots for Scene {scene.scene_number:02d} (Gemma 4 26B)", use_container_width=True, type="primary"):
@@ -172,7 +175,6 @@ def render_shots_page():
                     sound="Subtle ambient rumble"
                 )
                 created_shot = ShotService.create_shot(db, manual_shot)
-                # Compile initial prompt
                 img_prompt = PromptCompiler.compile_image_prompt(
                     style_data=style_dict,
                     location_data=loc_dict,
@@ -190,6 +192,32 @@ def render_shots_page():
                 st.success(f"Added Shot {new_num}!")
                 st.rerun()
 
+        with btn_col4:
+            dialogue_shots = [s for s in shots if s.dialogue and s.dialogue.strip()]
+            if dialogue_shots:
+                if st.button(f"🎙️ Batch Synthesize Scene Dialogue ({len(dialogue_shots)} lines)", use_container_width=True):
+                    with st.spinner(f"Synthesizing dialogue audio for {len(dialogue_shots)} shots via Kokoro-82M..."):
+                        synth_count = 0
+                        for d_shot in dialogue_shots:
+                            # Determine speaking character
+                            char_name = d_shot.characters[0] if d_shot.characters else ""
+                            char_obj = VoiceService.get_dialogue_character(db, project.id, char_name)
+                            if not char_obj and characters:
+                                char_obj = characters[0]
+
+                            if char_obj:
+                                VoiceService.synthesize_shot_dialogue(
+                                    db=db,
+                                    project_id=project.id,
+                                    shot_id=d_shot.id,
+                                    character=char_obj,
+                                    dialogue_text=d_shot.dialogue,
+                                    emotion=d_shot.emotion
+                                )
+                                synth_count += 1
+                        st.success(f"✨ Synthesized audio for {synth_count} shots in Scene {scene.scene_number:02d}!")
+                        st.rerun()
+
         # Shot List Display
         st.markdown(f"### Shotlist for Scene {scene.scene_number:02d} ({len(shots)} Shots)")
         if not shots:
@@ -202,138 +230,249 @@ def render_shots_page():
         for shot in shots:
             shot_status_icon = "✅ Approved" if shot.status == ShotStatus.APPROVED.value else "📝 Draft"
             chars_badge = ", ".join(shot.characters) if shot.characters else "No character in frame"
+            
+            # Check if dialogue audio exists
+            audio_asset = VoiceService.get_audio_for_shot(db, shot.id)
+            audio_badge = f"🎙️ Audio ({audio_asset.duration:.1f}s)" if audio_asset and audio_asset.duration else ("🎙️ Audio Ready" if audio_asset else ("💬 Line" if shot.dialogue else "🔇 Silent"))
 
             exp_label = (
                 f"🎞️ Shot {shot.shot_number:02d}: [{shot.shot_type}] {shot.camera_movement} ({shot.duration_seconds}s) "
-                f"| 👥 {chars_badge} | {shot_status_icon}"
+                f"| 👥 {chars_badge} | {audio_badge} | {shot_status_icon}"
             )
 
             with st.expander(exp_label, expanded=(shot.shot_number <= 2)):
-                with st.form(key=f"shot_form_{shot.id}"):
-                    r1_col1, r1_col2, r1_col3, r1_col4 = st.columns(4)
-                    with r1_col1:
-                        new_shot_type = st.selectbox(
-                            "Shot Type",
-                            options=["Wide Shot", "Extreme Wide Shot", "Medium Shot", "Medium Close-up", "Close-up", "Extreme Close-up", "Over-the-Shoulder", "Point-of-View"],
-                            index=["Wide Shot", "Extreme Wide Shot", "Medium Shot", "Medium Close-up", "Close-up", "Extreme Close-up", "Over-the-Shoulder", "Point-of-View"].index(shot.shot_type) if shot.shot_type in ["Wide Shot", "Extreme Wide Shot", "Medium Shot", "Medium Close-up", "Close-up", "Extreme Close-up", "Over-the-Shoulder", "Point-of-View"] else 0
+                tab_direct, tab_audio = st.tabs(["🎬 Cinematic Direction & Prompts", "🎙️ Spoken Dialogue & Voice Audio"])
+
+                with tab_direct:
+                    with st.form(key=f"shot_form_{shot.id}"):
+                        r1_col1, r1_col2, r1_col3, r1_col4 = st.columns(4)
+                        with r1_col1:
+                            new_shot_type = st.selectbox(
+                                "Shot Type",
+                                options=["Wide Shot", "Extreme Wide Shot", "Medium Shot", "Medium Close-up", "Close-up", "Extreme Close-up", "Over-the-Shoulder", "Point-of-View"],
+                                index=["Wide Shot", "Extreme Wide Shot", "Medium Shot", "Medium Close-up", "Close-up", "Extreme Close-up", "Over-the-Shoulder", "Point-of-View"].index(shot.shot_type) if shot.shot_type in ["Wide Shot", "Extreme Wide Shot", "Medium Shot", "Medium Close-up", "Close-up", "Extreme Close-up", "Over-the-Shoulder", "Point-of-View"] else 0
+                            )
+                        with r1_col2:
+                            new_angle = st.text_input("Camera Angle", value=shot.camera_angle or "Eye-level")
+                        with r1_col3:
+                            new_movement = st.text_input("Camera Movement", value=shot.camera_movement or "Slow Dolly")
+                        with r1_col4:
+                            new_lens = st.text_input("Lens Package", value=shot.lens or "50mm prime")
+
+                        r2_col1, r2_col2, r2_col3 = st.columns([2, 1, 1])
+                        with r2_col1:
+                            new_chars_str = st.text_input("Characters in Frame (comma separated)", value=", ".join(shot.characters) if shot.characters else "")
+                        with r2_col2:
+                            new_duration = st.number_input("Duration (s)", min_value=1.0, max_value=20.0, value=float(shot.duration_seconds), step=0.5)
+                        with r2_col3:
+                            new_emotion = st.text_input("Character Emotion", value=shot.emotion or "Tense")
+
+                        new_action = st.text_area("Physical Action & Movement", value=shot.action or "", height=70)
+
+                        r3_col1, r3_col2 = st.columns(2)
+                        with r3_col1:
+                            new_lighting = st.text_input("Lighting Setup", value=shot.lighting or "")
+                        with r3_col2:
+                            new_sound = st.text_input("Sound / Foley Cue", value=shot.sound or "")
+
+                        # Compiled Prompts Section
+                        st.markdown("#### 🎯 Compiled Production Prompts")
+                        new_image_prompt = st.text_area(
+                            "🖼️ Keyframe Image Prompt (Deterministic: FLUX / Qwen)",
+                            value=shot.image_prompt or "",
+                            height=100
                         )
-                    with r1_col2:
-                        new_angle = st.text_input("Camera Angle", value=shot.camera_angle or "Eye-level")
-                    with r1_col3:
-                        new_movement = st.text_input("Camera Movement", value=shot.camera_movement or "Slow Dolly")
-                    with r1_col4:
-                        new_lens = st.text_input("Lens Package", value=shot.lens or "50mm prime")
+                        new_video_prompt = st.text_area(
+                            "🎥 Video Generation Prompt (Temporal Dynamics: LTX-2.3)",
+                            value=shot.video_prompt or "",
+                            height=90
+                        )
 
-                    r2_col1, r2_col2, r2_col3 = st.columns([2, 1, 1])
-                    with r2_col1:
-                        new_chars_str = st.text_input("Characters in Frame (comma separated)", value=", ".join(shot.characters) if shot.characters else "")
-                    with r2_col2:
-                        new_duration = st.number_input("Duration (s)", min_value=1.0, max_value=20.0, value=float(shot.duration_seconds), step=0.5)
-                    with r2_col3:
-                        new_emotion = st.text_input("Character Emotion", value=shot.emotion or "Tense")
+                        # Prompt Version History
+                        versions = ShotService.list_prompt_versions(db, "shot_image", shot.id)
+                        if versions:
+                            st.caption(f"📜 Prompt Revisions: {len(versions)} recorded versions in database (latest v{versions[0].version})")
 
-                    new_action = st.text_area("Physical Action & Movement", value=shot.action or "", height=70)
-                    new_dialogue = st.text_input("Dialogue (if spoken)", value=shot.dialogue or "")
+                        b_col1, b_col2, b_col3, b_col4 = st.columns([2, 2, 1.5, 1.5])
+                        with b_col1:
+                            save_shot_btn = st.form_submit_button("💾 Save Shot & Prompts", use_container_width=True)
+                        with b_col2:
+                            recompile_btn = st.form_submit_button("🔄 Recompile Prompts from Bible", use_container_width=True)
+                        with b_col3:
+                            approve_shot_btn = st.form_submit_button("✅ Approve Shot", use_container_width=True)
+                        with b_col4:
+                            delete_shot_btn = st.form_submit_button("🗑️ Delete", use_container_width=True)
 
-                    r3_col1, r3_col2 = st.columns(2)
-                    with r3_col1:
-                        new_lighting = st.text_input("Lighting Setup", value=shot.lighting or "")
-                    with r3_col2:
-                        new_sound = st.text_input("Sound / Foley Cue", value=shot.sound or "")
-
-                    # Compiled Prompts Section
-                    st.markdown("#### 🎯 Compiled Production Prompts")
-                    new_image_prompt = st.text_area(
-                        "🖼️ Keyframe Image Prompt (Deterministic: FLUX / Qwen)",
-                        value=shot.image_prompt or "",
-                        height=100
-                    )
-                    new_video_prompt = st.text_area(
-                        "🎥 Video Generation Prompt (Temporal Dynamics: LTX-2.3)",
-                        value=shot.video_prompt or "",
-                        height=90
-                    )
-
-                    # Prompt Version History
-                    versions = ShotService.list_prompt_versions(db, "shot_image", shot.id)
-                    if versions:
-                        st.caption(f"📜 Prompt Revisions: {len(versions)} recorded versions in database (latest v{versions[0].version})")
-
-                    b_col1, b_col2, b_col3, b_col4 = st.columns([2, 2, 1.5, 1.5])
-                    with b_col1:
-                        save_shot_btn = st.form_submit_button("💾 Save Shot & Prompts", use_container_width=True)
-                    with b_col2:
-                        recompile_btn = st.form_submit_button("🔄 Recompile Prompts from Bible", use_container_width=True)
-                    with b_col3:
-                        approve_shot_btn = st.form_submit_button("✅ Approve Shot", use_container_width=True)
-                    with b_col4:
-                        delete_shot_btn = st.form_submit_button("🗑️ Delete", use_container_width=True)
-
-                    if save_shot_btn:
-                        char_list = [c.strip() for c in new_chars_str.split(",") if c.strip()]
-                        ShotService.update_shot(db, shot.id, {
-                            "shot_type": new_shot_type,
-                            "camera_angle": new_angle,
-                            "camera_movement": new_movement,
-                            "lens": new_lens,
-                            "characters": char_list,
-                            "duration_seconds": new_duration,
-                            "emotion": new_emotion,
-                            "action": new_action,
-                            "dialogue": new_dialogue or None,
-                            "lighting": new_lighting,
-                            "sound": new_sound,
-                            "image_prompt": new_image_prompt,
-                            "video_prompt": new_video_prompt
-                        })
-                        st.success(f"Shot {shot.shot_number} saved and prompt version recorded!")
-                        st.rerun()
-
-                    if recompile_btn:
-                        recompiled_img = PromptCompiler.compile_image_prompt(
-                            style_data=style_dict,
-                            location_data=loc_dict,
-                            characters_data=chars_list,
-                            scene_data={"visual_direction": scene.visual_direction},
-                            shot_data={
+                        if save_shot_btn:
+                            char_list = [c.strip() for c in new_chars_str.split(",") if c.strip()]
+                            ShotService.update_shot(db, shot.id, {
                                 "shot_type": new_shot_type,
                                 "camera_angle": new_angle,
-                                "lens": new_lens,
-                                "action": new_action,
-                                "emotion": new_emotion,
-                                "lighting": new_lighting
-                            }
-                        )
-                        recompiled_vid = PromptCompiler.compile_video_prompt(
-                            style_data=style_dict,
-                            location_data=loc_dict,
-                            characters_data=chars_list,
-                            scene_data={"sound_design": scene.sound_design},
-                            shot_data={
-                                "shot_type": new_shot_type,
                                 "camera_movement": new_movement,
+                                "lens": new_lens,
+                                "characters": char_list,
                                 "duration_seconds": new_duration,
-                                "action": new_action,
                                 "emotion": new_emotion,
-                                "lighting": new_lighting
-                            }
+                                "action": new_action,
+                                "lighting": new_lighting,
+                                "sound": new_sound,
+                                "image_prompt": new_image_prompt,
+                                "video_prompt": new_video_prompt
+                            })
+                            st.success(f"Shot {shot.shot_number} saved and prompt version recorded!")
+                            st.rerun()
+
+                        if recompile_btn:
+                            recompiled_img = PromptCompiler.compile_image_prompt(
+                                style_data=style_dict,
+                                location_data=loc_dict,
+                                characters_data=chars_list,
+                                scene_data={"visual_direction": scene.visual_direction},
+                                shot_data={
+                                    "shot_type": new_shot_type,
+                                    "camera_angle": new_angle,
+                                    "lens": new_lens,
+                                    "action": new_action,
+                                    "emotion": new_emotion,
+                                    "lighting": new_lighting
+                                }
+                            )
+                            recompiled_vid = PromptCompiler.compile_video_prompt(
+                                style_data=style_dict,
+                                location_data=loc_dict,
+                                characters_data=chars_list,
+                                scene_data={"sound_design": scene.sound_design},
+                                shot_data={
+                                    "shot_type": new_shot_type,
+                                    "camera_movement": new_movement,
+                                    "duration_seconds": new_duration,
+                                    "action": new_action,
+                                    "emotion": new_emotion,
+                                    "lighting": new_lighting
+                                }
+                            )
+                            ShotService.update_shot(db, shot.id, {
+                                "image_prompt": recompiled_img,
+                                "video_prompt": recompiled_vid
+                            })
+                            st.success("Prompts recompiled from production bible!")
+                            st.rerun()
+
+                        if approve_shot_btn:
+                            ShotService.update_shot(db, shot.id, {"status": ShotStatus.APPROVED.value})
+                            st.success(f"Shot {shot.shot_number} approved!")
+                            st.rerun()
+
+                        if delete_shot_btn:
+                            ShotService.delete_shot(db, shot.id)
+                            st.warning(f"Deleted Shot {shot.shot_number}!")
+                            st.rerun()
+
+                with tab_audio:
+                    st.markdown("#### 🎙️ Spoken Dialogue & Emotion Synthesis")
+                    
+                    # Select speaking character
+                    char_names = [c.name for c in characters] if characters else ["Narrator"]
+                    default_speaker_idx = 0
+                    if shot.characters and shot.characters[0] in char_names:
+                        default_speaker_idx = char_names.index(shot.characters[0])
+
+                    d_col1, d_col2 = st.columns([2, 2])
+                    with d_col1:
+                        speaker_name = st.selectbox(
+                            "Speaking Character",
+                            options=char_names,
+                            index=default_speaker_idx,
+                            key=f"speaker_select_{shot.id}"
                         )
-                        ShotService.update_shot(db, shot.id, {
-                            "image_prompt": recompiled_img,
-                            "video_prompt": recompiled_vid
-                        })
-                        st.success("Prompts recompiled from production bible!")
+                        speaker_char = next((c for c in characters if c.name == speaker_name), None) if characters else None
+                        
+                        voice_id = getattr(speaker_char, "voice_description", "") if speaker_char else ""
+                        if not voice_id or voice_id not in VoiceService.VOICE_PRESETS:
+                            voice_id = VoiceService.suggest_voice_for_character(speaker_char) if speaker_char else "af_sarah"
+                        preset_info = VoiceService.VOICE_PRESETS.get(voice_id, {})
+                        
+                        st.caption(f"🎭 **Assigned Voice Profile:** `{preset_info.get('name', voice_id)}` ({preset_info.get('gender', '')}, {preset_info.get('accent', '')})")
+
+                    with d_col2:
+                        emotion_tag = st.selectbox(
+                            "Emotional Delivery / Acting Style",
+                            options=[
+                                f"Current Shot Emotion: {shot.emotion or 'Neutral'}",
+                                "Tense & Breathless",
+                                "Whispering & Terrified",
+                                "Urgent & Shouting",
+                                "Cold & Controlled",
+                                "Grounded & Analytical",
+                                "Sarcastic & Dismissive"
+                            ],
+                            key=f"emotion_delivery_{shot.id}"
+                        )
+
+                    edited_dialogue = st.text_area(
+                        "Spoken Line / Dialogue Text",
+                        value=shot.dialogue or "",
+                        placeholder="e.g. Someone is inside the building with us... quiet!",
+                        height=80,
+                        key=f"dialogue_text_{shot.id}"
+                    )
+
+                    aud_action_col1, aud_action_col2 = st.columns([2, 3])
+                    with aud_action_col1:
+                        synth_btn = st.button(
+                            "🎙️ Synthesize Dialogue Audio",
+                            key=f"synth_btn_{shot.id}",
+                            type="primary",
+                            use_container_width=True
+                        )
+
+                    with aud_action_col2:
+                        save_dialogue_btn = st.button(
+                            "💾 Save Line to Shot",
+                            key=f"save_line_{shot.id}",
+                            use_container_width=True
+                        )
+
+                    if save_dialogue_btn:
+                        ShotService.update_shot(db, shot.id, {"dialogue": edited_dialogue})
+                        st.success("Dialogue line saved to shot!")
                         st.rerun()
 
-                    if approve_shot_btn:
-                        ShotService.update_shot(db, shot.id, {"status": ShotStatus.APPROVED.value})
-                        st.success(f"Shot {shot.shot_number} approved!")
-                        st.rerun()
+                    if synth_btn:
+                        if not edited_dialogue or not edited_dialogue.strip():
+                            st.warning("Please enter a dialogue line before synthesizing.")
+                        elif not speaker_char:
+                            st.warning("Please ensure a valid character is assigned.")
+                        else:
+                            with st.spinner(f"Generating voice performance for {speaker_name} using Kokoro-82M..."):
+                                # Update dialogue text on shot first
+                                ShotService.update_shot(db, shot.id, {"dialogue": edited_dialogue})
+                                
+                                # Synthesize speech
+                                audio_asset = VoiceService.synthesize_shot_dialogue(
+                                    db=db,
+                                    project_id=project.id,
+                                    shot_id=shot.id,
+                                    character=speaker_char,
+                                    dialogue_text=edited_dialogue,
+                                    emotion=emotion_tag
+                                )
+                                if audio_asset:
+                                    st.success(f"✨ Dialogue audio synthesized! Duration: {audio_asset.duration:.1f}s")
+                                    st.rerun()
+                                else:
+                                    st.error("Dialogue audio synthesis failed.")
 
-                    if delete_shot_btn:
-                        ShotService.delete_shot(db, shot.id)
-                        st.warning(f"Deleted Shot {shot.shot_number}!")
-                        st.rerun()
+                    # Audio Player Card
+                    if audio_asset and audio_asset.file_path and Path(audio_asset.file_path).exists():
+                        st.markdown("---")
+                        st.markdown("##### 🎧 Active Shot Audio Track")
+                        with open(audio_asset.file_path, "rb") as f:
+                            audio_bytes = f.read()
+                        st.audio(audio_bytes, format="audio/wav")
+                        st.caption(f"📁 **File:** `{Path(audio_asset.file_path).name}` | ⏱️ **Audio Length:** `{audio_asset.duration:.1f}s` | ⏱️ **Shot Duration:** `{shot.duration_seconds}s`")
+                    elif shot.dialogue:
+                        st.info("💡 Dialogue line is set, but audio is not yet generated. Click **'🎙️ Synthesize Dialogue Audio'** above.")
 
         # Global Shotlist Approval
         st.markdown("---")

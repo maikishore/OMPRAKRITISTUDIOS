@@ -111,6 +111,48 @@ class AssetService:
         return asset
 
     @staticmethod
+    def save_audio_asset(
+        db: Session,
+        project_id: str,
+        audio_bytes: bytes,
+        prompt: str,
+        provider: str = "modal",
+        model: str = "Kokoro-82M",
+        duration: Optional[float] = None,
+        parameters: Optional[dict] = None
+    ) -> Asset:
+        """Saves generated speech audio bytes to disk and registers Asset in database."""
+        import uuid
+        from storage.paths import StoragePaths
+        from storage.object_store import LocalObjectStore
+        from core.enums import AssetType
+
+        asset_id = str(uuid.uuid4())
+        filename = f"dialogue_{asset_id[:8]}.wav"
+        dest_dir = StoragePaths.get_project_dir(project_id) / "audio"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest_path = dest_dir / filename
+        LocalObjectStore.save_file(audio_bytes, dest_path)
+
+        asset = Asset(
+            id=asset_id,
+            project_id=project_id,
+            type=AssetType.AUDIO.value,
+            file_path=str(dest_path),
+            mime_type="audio/wav",
+            provider=provider,
+            model=model,
+            prompt=prompt,
+            duration=duration,
+            parameters=parameters or {},
+            is_approved=True
+        )
+        db.add(asset)
+        db.commit()
+        db.refresh(asset)
+        return asset
+
+    @staticmethod
     def set_character_master_reference(db: Session, character_id: str, asset_id: str) -> bool:
         """Sets an asset as the master approved visual identity reference for a character."""
         from core.models import Character
