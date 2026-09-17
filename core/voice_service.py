@@ -190,6 +190,34 @@ class VoiceService:
         return res.audio_bytes
 
     @classmethod
+    def clean_dialogue_text(cls, raw_dialogue: str) -> tuple[str, str]:
+        """Extracts speaker prefix (if any) and cleans spoken text for TTS synthesis.
+        
+        Example:
+            'Lucy: "Did you hear that?"' -> ('Lucy', 'Did you hear that?')
+            'David: Stay close to me.'   -> ('David', 'Stay close to me.')
+            'Look out!'                 -> ('', 'Look out!')
+        """
+        if not raw_dialogue:
+            return "", ""
+        
+        text = raw_dialogue.strip()
+        speaker = ""
+
+        # Check for Speaker: Prefix
+        if ":" in text:
+            parts = text.split(":", 1)
+            prefix = parts[0].strip()
+            # If prefix is short and looks like a character name
+            if len(prefix) <= 30 and not any(p in prefix for p in [".", ",", "?", "!"]):
+                speaker = prefix
+                text = parts[1].strip()
+
+        # Strip surrounding quotes and whitespace
+        text = text.strip("\"' ")
+        return speaker, text
+
+    @classmethod
     def synthesize_shot_dialogue(
         cls,
         db: Session,
@@ -205,7 +233,18 @@ class VoiceService:
         if not dialogue_text or not dialogue_text.strip():
             return None
 
-        voice_id = character.voice_description if character.voice_description in cls.VOICE_PRESETS else cls.suggest_voice_for_character(character)
+        # Clean dialogue text and auto-resolve speaker character if formatted as 'Name: ...'
+        detected_speaker, clean_text = cls.clean_dialogue_text(dialogue_text)
+        speech_text = clean_text if clean_text else dialogue_text.strip()
+
+        # If detected speaker matches another project character, switch to that character's voice
+        active_character = character
+        if detected_speaker:
+            matched_char = cls.get_dialogue_character(db, project_id, detected_speaker)
+            if matched_char:
+                active_character = matched_char
+
+        voice_id = active_character.voice_description if getattr(active_character, "voice_description", None) in cls.VOICE_PRESETS else cls.suggest_voice_for_character(active_character)
         preset = cls.VOICE_PRESETS.get(voice_id, cls.VOICE_PRESETS["qwen_vivian"])
         speaker = preset.get("speaker", "Vivian")
 
@@ -214,7 +253,7 @@ class VoiceService:
 
         provider = get_audio_provider(provider_name)
         req = AudioGenerationRequest(
-            text=dialogue_text.strip(),
+            text=speech_text,
             voice=speaker,
             instruct=compiled_instruct,
             speed=0.95 if "whisper" in compiled_instruct.lower() else 1.05 if "urgent" in compiled_instruct.lower() else 1.0
@@ -232,13 +271,14 @@ class VoiceService:
             duration=res.duration_seconds,
             parameters={
                 "shot_id": shot_id,
-                "character_id": character.id,
-                "character_name": character.name,
+                "character_id": active_character.id,
+                "character_name": active_character.name,
                 "voice_id": voice_id,
                 "speaker": speaker,
                 "emotion": emotion or "neutral",
                 "instruct": compiled_instruct,
-                "duration_seconds": res.duration_seconds
+                "duration_seconds": res.duration_seconds,
+                "clean_text": speech_text
             }
         )
 
@@ -274,3 +314,4 @@ class VoiceService:
             Character.project_id == project_id,
             Character.name.ilike(f"%{character_name.strip()}%")
         ).first()
+

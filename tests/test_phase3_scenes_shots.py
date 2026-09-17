@@ -220,9 +220,31 @@ def test_scene_and_shot_ai_engines(db_session):
     total_dur = sum(s["duration_seconds"] for s in scenes)
     assert 500 <= total_dur <= 700
 
-    # 2. Test ShotEngine seed generation
+    # 2. Test ShotEngine seed generation with dialogue
     shot_engine = ShotEngine()
     shots = shot_engine.get_seed_shots_for_scene(1)
     assert len(shots) == 5
     assert shots[0]["shot_type"] == "Wide Shot"
     assert "Lucy" in shots[0]["characters"]
+    assert shots[0]["dialogue"] is not None
+    assert "Lucy:" in shots[0]["dialogue"]
+
+    # 3. Test that scenes 1-10 all contain dialogue
+    for sc in scenes:
+        assert sc.get("dialogue") is not None
+        assert len(sc["dialogue"]) > 10
+
+    # 4. Test VoiceService dialogue text parser and cleaner
+    from core.voice_service import VoiceService
+    spk, cleaned = VoiceService.clean_dialogue_text('Lucy: "Can you believe they rented the entire mall for this?"')
+    assert spk == "Lucy"
+    assert cleaned == "Can you believe they rented the entire mall for this?"
+
+    spk2, cleaned2 = VoiceService.clean_dialogue_text("David: Stay behind me.")
+    assert spk2 == "David"
+    assert cleaned2 == "Stay behind me."
+
+    spk3, cleaned3 = VoiceService.clean_dialogue_text("Stay quiet!")
+    assert spk3 == ""
+    assert cleaned3 == "Stay quiet!"
+

@@ -122,7 +122,8 @@ def render_shots_page():
                         "time_of_day": scene.time_of_day,
                         "emotional_state": scene.emotional_state,
                         "visual_direction": scene.visual_direction,
-                        "sound_design": scene.sound_design
+                        "sound_design": scene.sound_design,
+                        "dialogue": scene.dialogue
                     }
 
                     generated_shots = engine.generate_shots_for_scene(

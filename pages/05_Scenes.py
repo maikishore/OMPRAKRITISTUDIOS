@@ -255,6 +255,7 @@ def render_scenes_page():
 
                     new_chars_str = st.text_input("Characters Present (comma separated)", value=", ".join(scene.characters) if scene.characters else "")
                     new_summary = st.text_area("Dramatic Action & Summary", value=scene.summary or "", height=80)
+                    new_dialogue = st.text_area("Key Dialogue Exchanges / Spoken Lines", value=scene.dialogue or "", height=70, help="Core spoken lines and character exchanges during this scene.")
                     new_purpose = st.text_input("Story Purpose / Function", value=scene.purpose or "")
 
                     r4_col1, r4_col2 = st.columns(2)
@@ -284,6 +285,7 @@ def render_scenes_page():
                             "emotional_state": new_emotion,
                             "characters": char_list,
                             "summary": new_summary,
+                            "dialogue": new_dialogue,
                             "purpose": new_purpose,
                             "visual_direction": new_visual,
                             "sound_design": new_sound,

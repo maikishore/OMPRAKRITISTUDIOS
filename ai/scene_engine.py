@@ -71,6 +71,7 @@ class SceneEngine:
                 "characters": ["Lucy", "David"],
                 "emotional_state": "Carefree turning to mild confusion and hesitation.",
                 "story_beat": "Act 1 - Inciting Incident",
+                "dialogue": "Lucy: 'Can you believe they rented the entire mall for this?'\nDavid: 'Did the music just cut out?'\nLucy: 'David, we have to get out right now!'",
                 "sound_design": "Chic synth party track cut short by booming reverberant 4-tone PA chime.",
                 "visual_direction": "Warm golden party lights cut violently to cold overhead sodium-vapor hum.",
                 "continuity_notes": "Lucy wears crimson silk cocktail dress, holding phone with dying battery."
@@ -86,6 +87,7 @@ class SceneEngine:
                 "characters": ["Lucy", "David"],
                 "emotional_state": "Mounting claustrophobic dread and panic.",
                 "story_beat": "Act 1 - Lock-in Reversal",
+                "dialogue": "Lucy: 'The doors! Pull the emergency latch, hurry!'\nDavid: 'It's no use... the magnetic locks are engaged from the inside.'\nLucy: 'There has to be another way out through security.'",
                 "sound_design": "Heavy metallic grinding, pneumatic piston locking clanks, dead silence following.",
                 "visual_direction": "Low angle looking up at the towering shutter; harsh shadows casting prison-bar silhouettes.",
                 "continuity_notes": "Glass doors reflect pitch-black outside; streetlights outside mysteriously dark."
@@ -101,6 +103,7 @@ class SceneEngine:
                 "characters": ["Lucy", "David"],
                 "emotional_state": "Paranoia, feeling watched and hunted.",
                 "story_beat": "Act 1 to Act 2 Transition",
+                "dialogue": "David: 'Look at monitor four... that camera angle is inside this room right now.'\nLucy: 'Whoever is operating the console is watching us breathe.'\nDavid: 'Don't look directly into the lens. Keep moving.'",
                 "sound_design": "High-pitched CRT tube coil whine, cooling fans, intermittent radio static.",
                 "visual_direction": "Green phosphor monitor glow washing over Lucy's face; deep black shadows in corners.",
                 "continuity_notes": "One monitor feed shows the fashion store mannequins standing in a new pose."
@@ -116,6 +119,7 @@ class SceneEngine:
                 "characters": ["Lucy", "Emma"],
                 "emotional_state": "Cautious maternal empathy masking deep instinctual dread.",
                 "story_beat": "Act 2 - Game 1: The Music Box",
+                "dialogue": "Lucy: 'Little girl? Are you lost in here too?'\nEmma: 'If you want the door to open, you must listen to the music box.'\nLucy: 'Where are your parents? Who locked these doors?'\nEmma: 'Shh... when the melody stops, nobody can move.'",
                 "sound_design": "Tinny detuned lullaby from the music box; porcelain doll eyes clicking as eyes blink.",
                 "visual_direction": "Creepy overhead spotlights illuminating toy shelves; shadows stretching long across aisles.",
                 "continuity_notes": "Emma wears pale vintage lace party dress; skin appears faintly waxy under light."
@@ -131,6 +135,7 @@ class SceneEngine:
                 "characters": ["Lucy", "Emma"],
                 "emotional_state": "High adrenaline, intense physical concentration.",
                 "story_beat": "Act 2 - Rising Action",
+                "dialogue": "Lucy: '(whispering) Don't touch the porcelain... keep your balance, Lucy.'\nEmma: 'Ten seconds left before the chorus ends.'\nLucy: 'I made it to the exit! Open the gate!'",
                 "sound_design": "Accelerating ticking tempo; faint sound of porcelain grinding whenever Lucy turns her back.",
                 "visual_direction": "Tight tracking camera on Lucy's trembling feet avoiding painted chalk lines.",
                 "continuity_notes": "Lucy grazes nothing; successfully reaches exit door."
@@ -146,6 +151,7 @@ class SceneEngine:
                 "characters": ["Lucy", "David"],
                 "emotional_state": "Desperation, frantic compliance with bizarre surreal rules.",
                 "story_beat": "Act 2 - Game 2: The Strobe Test",
+                "dialogue": "David: 'Lucy, you're alive! What is happening to this place?'\nLucy: 'David, look at the broadcast speaker... it's counting down!'\nDavid: 'What does it mean, assume a pose?!'\nLucy: 'Freeze, David! Don't blink, don't breathe!'",
                 "sound_design": "Blinding strobe clicks with intense audio dropouts between flashes; synthetic mall voice.",
                 "visual_direction": "Stroboscopic lighting freezing characters in rigid fashion editorial postures.",
                 "continuity_notes": "David's hands begin to show unnatural stiffening at knuckles."
@@ -161,6 +167,7 @@ class SceneEngine:
                 "characters": ["Lucy", "David"],
                 "emotional_state": "Horror, devastation, grief, and pure survival instinct.",
                 "story_beat": "Act 2 - Midpoint Reversal / Loss of Ally",
+                "dialogue": "Lucy: 'David, wake up! Talk to me please!'\nLucy: '(gasping in horror) Your skin... it's like cold porcelain.'\nLucy: 'I'm going to get you out of here, I swear it!'",
                 "sound_design": "Loud snap sound, followed by hollow fiberglass tap sound when Lucy touches David's arm.",
                 "visual_direction": "Extreme close up on David's vacant, glass-marble eye; tear frozen solid on waxy cheek.",
                 "continuity_notes": "David is now an immovable store fixture; Lucy takes his flashlight."
@@ -176,6 +183,7 @@ class SceneEngine:
                 "characters": ["Lucy", "Emma"],
                 "emotional_state": "Grim determination, exhausted triumph, false hope.",
                 "story_beat": "Act 3 - Climax: The Final Game",
+                "dialogue": "Emma: 'Step onto the pedestal, Lucy. This is the last requirement for release.'\nLucy: 'If I stand here, you unlock the front doors, right?'\nEmma: 'All obedient models are allowed to greet the morning.'",
                 "sound_design": "Deep hydraulic motor hum revolving the circular pedestal; celestial department store music.",
                 "visual_direction": "Spotlight beaming from above like a theater stage; street outside beginning to show faint indigo dawn.",
                 "continuity_notes": "Lucy mounts the stage, assumes the final required graceful pose."
@@ -191,6 +199,7 @@ class SceneEngine:
                 "characters": ["Lucy", "Emma"],
                 "emotional_state": "Paralyzing shock turning to eternal silent stillness.",
                 "story_beat": "Act 3 - The Terrible Truth",
+                "dialogue": "Lucy: '(struggling, voice strained) My fingers... I can't move my arms!'\nEmma: 'You look so breathtaking under the morning sun, Lucy.'\nLucy: '(fading whisper) Emma... please... no...'",
                 "sound_design": "Sound of breath crystallizing, high melodic bell chime, absolute dead quiet.",
                 "visual_direction": "Slow 360-degree rotation showing Lucy transformed into an exquisite porcelain mannequin.",
                 "continuity_notes": "Lucy's crimson dress is pinned with a designer price tag: 'NEW ARRIVAL'."
@@ -206,6 +215,7 @@ class SceneEngine:
                 "characters": ["Emma"],
                 "emotional_state": "Chilling corporate normalcy and eerie dread.",
                 "story_beat": "Act 3 - Resolution / Haunting Epilogue",
+                "dialogue": "Emma: 'Welcome shoppers to today's grand exhibition.'\nEmma: 'Tonight at closing... we invite you to play.'",
                 "sound_design": "Warm daytime mall chime, cheerful ambient chatter, automated voice: 'Welcome shoppers... Next player.'",
                 "visual_direction": "Wide pulling back shot from Lucy's serene mannequin face out through glass into busy sunlight.",
                 "continuity_notes": "Emma standing in the crowd of morning shoppers, holding a new flyer for tonight's party."

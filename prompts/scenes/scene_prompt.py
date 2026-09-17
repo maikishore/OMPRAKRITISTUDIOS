@@ -15,6 +15,7 @@ Each scene must have:
 - characters: List of character names present in this scene
 - emotional_state: Emotional tension level and protagonist psychology
 - story_beat: 3-Act beat (e.g., Act 1 - Setup, Act 2 - First Game, Act 3 - Climax)
+- dialogue: 2 to 4 lines of core dramatic spoken dialogue exchanges between characters in this scene
 - sound_design: Ambient audio, mechanical cues, eerie soundscapes, musical mood
 - visual_direction: Key camera angles, lighting mood, color shift, or blocking guidance
 - continuity_notes: Any key props, costumes, physical injuries, or clues to maintain
@@ -30,9 +31,10 @@ IMPORTANT: Output MUST be strictly valid JSON matching this schema:
       "duration_seconds": 55,
       "location_name": "...",
       "time_of_day": "...",
-      "characters": ["..."],
+      "characters": ["Lucy", "David"],
       "emotional_state": "...",
       "story_beat": "...",
+      "dialogue": "Lucy: 'Can you believe they rented the entire mall for this?'\\nDavid: 'Something feels off. The security guards just vanished.'",
       "sound_design": "...",
       "visual_direction": "...",
       "continuity_notes": "..."
@@ -80,4 +82,6 @@ LOCATION BIBLE:
 VISUAL STYLE:
 {visual_style_summary or 'Cinematic anamorphic, realistic dark horror lighting progression'}
 
-Break this story down into 8-12 granular, sequential scenes totaling ~{target_duration_seconds}s. Output valid JSON only."""
+Break this story down into 8-12 granular, sequential scenes totaling ~{target_duration_seconds}s.
+Ensure each scene includes vivid dialogue exchanges for the characters present. Output valid JSON only."""
+
