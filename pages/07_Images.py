@@ -168,7 +168,12 @@ def render_images_page():
                                     seed=int(char_seed),
                                     provider=provider_choice,
                                     model="FLUX.1 [dev]" if provider_choice == "modal" else "FLUX.1 [schnell]",
-                                    parameters={"preset_key": selected_preset_key, "preset_name": compiled["preset_name"]}
+                                    parameters={
+                                        "character_id": character.id,
+                                        "character_name": character.name,
+                                        "preset_key": selected_preset_key,
+                                        "preset_name": compiled["preset_name"]
+                                    }
                                 )
                                 if selected_preset_key == "MASTER_PORTRAIT" and not character.master_reference_asset_id:
                                     AssetService.set_character_master_reference(db, character.id, saved_asset.id)
@@ -201,7 +206,12 @@ def render_images_page():
                                             seed=int(char_seed) + idx * 10,
                                             provider=provider_choice,
                                             model="FLUX.1 [dev]" if provider_choice == "modal" else "FLUX.1 [schnell]",
-                                            parameters={"preset_key": p_key, "preset_name": c_spec["preset_name"]}
+                                            parameters={
+                                                "character_id": character.id,
+                                                "character_name": character.name,
+                                                "preset_key": p_key,
+                                                "preset_name": c_spec["preset_name"]
+                                            }
                                         )
                                         if p_key == "MASTER_PORTRAIT" and not character.master_reference_asset_id:
                                             AssetService.set_character_master_reference(db, character.id, sa.id)
@@ -211,17 +221,31 @@ def render_images_page():
 
                     st.markdown("---")
 
-                    # 3. CHARACTER VISUAL MATRIX & INDIVIDUAL POSE RE-GENERATION
-                    char_assets = db.query(Asset).filter(
+                    # 3. CHARACTER VISUAL MATRIX & INDIVIDUAL POSE RE-GENERATION (FILTERED FOR THIS CHARACTER ONLY)
+                    all_char_assets = db.query(Asset).filter(
                         Asset.project_id == project.id,
                         Asset.type.in_([AssetType.CHARACTER_REFERENCE.value, AssetType.CHARACTER_SHEET.value])
                     ).order_by(Asset.created_at.desc()).all() if characters else []
 
+                    def is_for_character(a: Asset, c) -> bool:
+                        params = a.parameters if isinstance(a.parameters, dict) else {}
+                        if params.get("character_id") == c.id:
+                            return True
+                        if c.master_reference_asset_id == a.id:
+                            return True
+                        if params.get("character_name", "").lower() == c.name.lower():
+                            return True
+                        if c.name.lower() in (a.prompt or "").lower():
+                            return True
+                        return False
+
+                    char_assets = [a for a in all_char_assets if is_for_character(a, character)]
+
                     st.markdown(f"#### 🎭 Generated Poses & Expressions for {character.name} ({len(char_assets)} Assets)")
-                    st.caption("Review, set master identity, or click **'🔄 Edit Prompt & Regenerate'** on any image to re-render that specific pose.")
+                    st.caption(f"Review, set master identity, or click **'🔄 Edit Prompt & Regenerate'** on any image to re-render that specific pose for {character.name}.")
 
                     if not char_assets:
-                        st.info("No poses or sheets generated yet for this character. Use the studio above to generate presets.")
+                        st.info(f"No poses or sheets generated yet for {character.name}. Use the studio above to generate presets.")
                     else:
                         cols = st.columns(3)
                         for idx, asset in enumerate(char_assets):
@@ -281,7 +305,10 @@ def render_images_page():
                                                         seed=int(regen_seed)
                                                     )
                                                     r_res = provider.generate(r_req)
-                                                    # Save as new asset variation with updated prompt
+                                                    # Save as new asset variation with updated prompt tagged to this character
+                                                    r_params = dict(asset.parameters or {})
+                                                    r_params["character_id"] = character.id
+                                                    r_params["character_name"] = character.name
                                                     new_asset = AssetService.save_image_asset(
                                                         db=db,
                                                         project_id=project.id,
@@ -291,7 +318,7 @@ def render_images_page():
                                                         seed=int(regen_seed),
                                                         provider=provider_choice,
                                                         model="FLUX.1 [dev]" if provider_choice == "modal" else "FLUX.1 [schnell]",
-                                                        parameters=asset.parameters or {}
+                                                        parameters=r_params
                                                     )
                                                     if is_master:
                                                         AssetService.set_character_master_reference(db, character.id, new_asset.id)
@@ -356,7 +383,8 @@ def render_images_page():
                                     prompt=loc_prompt,
                                     seed=int(loc_seed),
                                     provider=provider_choice,
-                                    model="FLUX.1 [dev]" if provider_choice == "modal" else "FLUX.1 [schnell]"
+                                    model="FLUX.1 [dev]" if provider_choice == "modal" else "FLUX.1 [schnell]",
+                                    parameters={"location_id": loc.id, "location_name": loc.name}
                                 )
                                 st.success(f"Generated and stored environment reference `{saved_asset.id[:8]}`!")
                                 st.rerun()
@@ -375,11 +403,25 @@ def render_images_page():
                         else:
                             st.warning("⚠️ No approved master reference asset set for this location.")
 
-                        # Show recent candidate location stills
-                        recent_loc_assets = db.query(Asset).filter(
+                        # Show recent candidate location stills (filtered for this location only)
+                        all_loc_assets = db.query(Asset).filter(
                             Asset.project_id == project.id,
                             Asset.type == AssetType.LOCATION_REFERENCE.value
-                        ).order_by(Asset.created_at.desc()).limit(6).all() if locations else []
+                        ).order_by(Asset.created_at.desc()).all() if locations else []
+
+                        def is_for_location(a: Asset, l) -> bool:
+                            params = a.parameters if isinstance(a.parameters, dict) else {}
+                            if params.get("location_id") == l.id:
+                                return True
+                            if l.master_reference_asset_id == a.id:
+                                return True
+                            if params.get("location_name", "").lower() == l.name.lower():
+                                return True
+                            if l.name.lower() in (a.prompt or "").lower():
+                                return True
+                            return False
+
+                        recent_loc_assets = [a for a in all_loc_assets if is_for_location(a, loc)][:6]
 
                         if recent_loc_assets:
                             st.markdown("##### Candidate Location Images")
