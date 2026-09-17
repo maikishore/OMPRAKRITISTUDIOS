@@ -628,22 +628,31 @@ def render_images_page():
 
                             # 1. ROBUST CHARACTER & LOCATION REFERENCE RESOLVER
                             def resolve_character_match(raw_name: str, char_list: list):
-                                if not raw_name:
+                                if not raw_name or not char_list:
                                     return None
-                                r_clean = raw_name.lower().strip()
-                                # Exact match
+                                r_clean = str(raw_name).lower().strip()
+
+                                def get_c_name(item):
+                                    if hasattr(item, "name"):
+                                        return str(item.name)
+                                    if isinstance(item, dict) and "name" in item:
+                                        return str(item["name"])
+                                    return str(item)
+
+                                # 1. Exact match
                                 for c in char_list:
-                                    if c.name.lower().strip() == r_clean:
+                                    c_name = get_c_name(c).lower().strip()
+                                    if c_name == r_clean:
                                         return c
-                                # Substring match
+                                # 2. Substring match
                                 for c in char_list:
-                                    c_low = c.name.lower().strip()
+                                    c_low = get_c_name(c).lower().strip()
                                     if r_clean in c_low or c_low in r_clean:
                                         return c
-                                # Token match (e.g. "Lucy" in "Lucy Vance")
+                                # 3. Token match (e.g. "Lucy" in "Lucy Vance")
                                 r_tokens = [t for t in r_clean.replace("(", " ").replace(")", " ").replace("-", " ").split() if len(t) > 1]
                                 for c in char_list:
-                                    c_tokens = [t for t in c.name.lower().replace("(", " ").replace(")", " ").replace("-", " ").split() if len(t) > 1]
+                                    c_tokens = [t for t in get_c_name(c).lower().replace("(", " ").replace(")", " ").replace("-", " ").split() if len(t) > 1]
                                     if any(t in c_tokens for t in r_tokens) or any(t in r_tokens for t in c_tokens):
                                         return c
                                 return None
