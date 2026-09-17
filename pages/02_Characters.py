@@ -8,6 +8,7 @@ import streamlit as st
 from core.database import ScopedSession
 from core.project_service import ProjectService
 from core.character_service import CharacterService
+from core.voice_service import VoiceService
 from core.enums import ProjectStatus
 from ai.character_engine import CharacterEngine
 from schemas.character import CharacterCreate, CharacterUpdate
@@ -79,6 +80,42 @@ try:
 
         for idx, char in enumerate(characters):
             with st.expander(f"👤 {char.name} ({char.role or 'Character'}) {'✅ Approved' if char.is_approved else '⏳ Draft'}", expanded=(idx==0)):
+                # Voice Casting & Audition Section
+                st.markdown("##### 🎙️ Voice Casting & Acoustic Profile")
+                v_col1, v_col2, v_col3 = st.columns([2, 2, 1])
+                
+                v_presets = VoiceService.list_presets()
+                v_map = {p["key"]: f"{p['name']} [{p['tone']}]" for p in v_presets}
+                default_voice = char.voice_description if char.voice_description in v_map else VoiceService.suggest_voice_for_character(char)
+                v_keys = list(v_map.keys())
+                v_idx = v_keys.index(default_voice) if default_voice in v_keys else 0
+
+                with v_col1:
+                    sel_voice_id = st.selectbox(
+                        "Casting Voice Profile",
+                        options=v_keys,
+                        index=v_idx,
+                        format_func=lambda x: v_map[x],
+                        key=f"voice_sel_{char.id}"
+                    )
+                with v_col2:
+                    audition_text = st.text_input(
+                        "Audition Sample Line",
+                        value=VoiceService.VOICE_PRESETS[sel_voice_id]["sample_line"],
+                        key=f"aud_text_{char.id}"
+                    )
+                with v_col3:
+                    st.write("") # spacing
+                    audition_btn = st.button("🔊 Audition Voice", key=f"btn_aud_{char.id}", use_container_width=True)
+
+                if audition_btn:
+                    with st.spinner(f"Synthesizing voice audition for {char.name}..."):
+                        aud_bytes = VoiceService.generate_audition(sel_voice_id, audition_text, provider_name="modal")
+                        st.audio(aud_bytes, format="audio/wav")
+                        st.success(f"Casting preview for **{char.name}** ({VoiceService.VOICE_PRESETS[sel_voice_id]['name']})")
+
+                st.markdown("---")
+
                 with st.form(f"char_form_{char.id}"):
                     c1, c2, c3, c4 = st.columns(4)
                     with c1:
@@ -103,7 +140,7 @@ try:
 
                     b_col1, b_col2, b_col3 = st.columns([1, 1, 2])
                     with b_col1:
-                        save_char = st.form_submit_button("💾 Save Character")
+                        save_char = st.form_submit_button("💾 Save Character & Lock Voice Profile")
                     with b_col2:
                         delete_char = st.form_submit_button("🗑️ Delete Character")
 
@@ -123,10 +160,11 @@ try:
                                 clothing=c_clothing,
                                 accessories=c_access,
                                 identity_prompt=c_prompt,
+                                voice_description=sel_voice_id,
                                 continuity_constraints=[c.strip() for c in c_continuity.split("\n") if c.strip()]
                             )
                         )
-                        st.success(f"Updated {c_name}!")
+                        st.success(f"Updated {c_name} and locked voice profile to `{sel_voice_id}`!")
                         st.rerun()
 
                     if delete_char:
