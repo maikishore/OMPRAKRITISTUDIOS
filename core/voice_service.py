@@ -22,6 +22,7 @@ class VoiceService:
             "gender": "Female",
             "accent": "American",
             "tone": "Youthful, expressive, tense, dynamic",
+            "base_instruct": "Speak in a youthful, expressive, clear dramatic tone",
             "sample_line": "Did you hear that? I'm telling you, someone else is in this building with us!"
         },
         "qwen_eric": {
@@ -30,7 +31,44 @@ class VoiceService:
             "gender": "Male",
             "accent": "American",
             "tone": "Grounded, deep, cautious, intense",
+            "base_instruct": "Speak in a grounded, deep, masculine, gritty tone",
             "sample_line": "Stay behind me. The exit gate is jammed, but there's a service stairwell in the back."
+        },
+        "qwen_emma_child": {
+            "name": "Emma / Lily (👶 Young Little Girl - Child / Innocent & Eerie, Age 7-10)",
+            "speaker": "Serena",
+            "gender": "Female (Child)",
+            "accent": "American",
+            "tone": "High-pitched, soft, innocent, child",
+            "base_instruct": "Speak in a high-pitched, soft, innocent, young 8-year-old child's voice with a delicate tone",
+            "sample_line": "If you want the door to open, you must listen to the music box."
+        },
+        "qwen_timmy_child": {
+            "name": "Leo / Timmy (👦 Young Boy - Child / Playful & Curious, Age 8-11)",
+            "speaker": "Ryan",
+            "gender": "Male (Child)",
+            "accent": "American",
+            "tone": "Youthful, energetic, high-pitched, boy",
+            "base_instruct": "Speak in an energetic, youthful, high-pitched 10-year-old young boy's voice",
+            "sample_line": "Hey, look what I found hidden under the old toy shelf!"
+        },
+        "qwen_grandma_martha": {
+            "name": "Martha / Eleanor (👵 Elderly Matriarch / Grandmother - Weathered & Wise, Age 70+)",
+            "speaker": "Elena",
+            "gender": "Female (Elderly)",
+            "accent": "American",
+            "tone": "Frail, raspy, mature, weathered, slow",
+            "base_instruct": "Speak in a frail, raspy, mature, weathered elderly grandmother's voice aged 75+ with slow deliberate cadence",
+            "sample_line": "Listen to me, child. Some doors in this town were meant to stay closed forever."
+        },
+        "qwen_grandpa_arthur": {
+            "name": "Arthur / Grandpa (👴 Weathered Elder Male - Deep, Gravelly & Raspy, Age 75+)",
+            "speaker": "Uncle_Martin",
+            "gender": "Male (Elderly)",
+            "accent": "American",
+            "tone": "Deep, gravelly, weathered, raspy, aged",
+            "base_instruct": "Speak in a deep, gravelly, weathered, raspy elderly grandfather's voice aged 75+ with an aged rasp",
+            "sample_line": "Back in my day, we knew better than to linger in the corridors after midnight."
         },
         "qwen_uncle_martin": {
             "name": "Uncle Martin (Authoritative Mature Male - Menacing / Deep)",
@@ -38,6 +76,7 @@ class VoiceService:
             "gender": "Male",
             "accent": "American",
             "tone": "Resonant, stern, commanding, intimidating",
+            "base_instruct": "Speak in an authoritative, commanding, deep mature tone",
             "sample_line": "All retail staff must report to the security dispatch immediately. Do not open the doors."
         },
         "qwen_serena": {
@@ -46,6 +85,7 @@ class VoiceService:
             "gender": "Female",
             "accent": "American",
             "tone": "Warm, emotional, sensitive, clear",
+            "base_instruct": "Speak in a warm, empathetic, sensitive tone",
             "sample_line": "I managed to bypass the security console, but the backup generators are failing fast."
         },
         "qwen_ryan": {
@@ -54,6 +94,7 @@ class VoiceService:
             "gender": "Male",
             "accent": "American",
             "tone": "Fast-paced, nervous, urgent, youthful",
+            "base_instruct": "Speak in a fast-paced, nervous, urgent tone",
             "sample_line": "The security camera feeds are looping every twenty seconds. We're completely blind!"
         },
         "qwen_elena": {
@@ -62,6 +103,7 @@ class VoiceService:
             "gender": "Female",
             "accent": "American",
             "tone": "Composed, mysterious, cold, calculating",
+            "base_instruct": "Speak in a composed, mysterious, cold, calculating tone",
             "sample_line": "Quiet... look at the mirrors in the atrium. The reflections aren't moving with us."
         },
         "qwen_dylan": {
@@ -70,6 +112,7 @@ class VoiceService:
             "gender": "Male",
             "accent": "American",
             "tone": "Analytical, precise, composed",
+            "base_instruct": "Speak in a steady, analytical, precise tone",
             "sample_line": "Curious. The electrical surge originated from deep inside the ventilation sub-level."
         },
         # Legacy aliases for smooth backward compatibility
@@ -129,10 +172,45 @@ class VoiceService:
 
     @classmethod
     def suggest_voice_for_character(cls, character: Character) -> str:
-        """Suggests an appropriate Qwen3-TTS voice preset based on character role/gender."""
-        gender = (character.gender or "").lower()
-        role = (character.role or "").lower()
+        """Suggests an appropriate Qwen3-TTS voice preset based on character age, role, and gender."""
+        gender = (getattr(character, "gender", "") or "").lower()
+        role = (getattr(character, "role", "") or "").lower()
+        name = (getattr(character, "name", "") or "").lower()
+        age_str = str(getattr(character, "age", "") or "").lower()
+        
+        # Check for Child / Kid
+        is_child = (
+            any(k in role for k in ["child", "kid", "daughter", "son", "little", "girl", "boy"]) or
+            any(k in name for k in ["emma", "timmy", "leo", "lily", "kid"])
+        )
+        if not is_child and age_str.isdigit():
+            try:
+                is_child = int(age_str) <= 14
+            except ValueError:
+                pass
 
+        if is_child:
+            if "female" in gender or "woman" in gender or "girl" in gender or "emma" in name or "lily" in name:
+                return "qwen_emma_child"
+            return "qwen_timmy_child"
+
+        # Check for Elderly / Senior
+        is_elderly = (
+            any(k in role for k in ["elderly", "elder", "grandma", "grandmother", "grandpa", "grandfather", "senior", "matriarch", "patriarch", "veteran"]) or
+            any(k in name for k in ["martha", "arthur", "grandpa", "grandma", "eleanor"])
+        )
+        if not is_elderly and age_str.isdigit():
+            try:
+                is_elderly = int(age_str) >= 60
+            except ValueError:
+                pass
+
+        if is_elderly:
+            if "female" in gender or "woman" in gender:
+                return "qwen_grandma_martha"
+            return "qwen_grandpa_arthur"
+
+        # Adult voices
         if "female" in gender or "woman" in gender:
             if "protagonist" in role or "lead" in role:
                 return "qwen_vivian"
@@ -149,22 +227,37 @@ class VoiceService:
             return "qwen_dylan"
 
     @classmethod
-    def compile_emotion_instruct(cls, emotion_tag: Optional[str] = None, custom_instruct: Optional[str] = None) -> str:
+    def compile_emotion_instruct(
+        cls,
+        emotion_tag: Optional[str] = None,
+        custom_instruct: Optional[str] = None,
+        voice_id: Optional[str] = None
+    ) -> str:
         """Compiles a natural language acting instruct prompt for Qwen3-TTS."""
         if custom_instruct and custom_instruct.strip():
             return custom_instruct.strip()
         
-        if not emotion_tag:
-            return "Speak naturally with dramatic presence"
+        base_instruct = ""
+        if voice_id and voice_id in cls.VOICE_PRESETS:
+            base_instruct = cls.VOICE_PRESETS[voice_id].get("base_instruct", "")
 
-        # Check preset dictionary
-        for k, v in cls.EMOTION_INSTRUCT_MAP.items():
-            if k.lower() in emotion_tag.lower():
-                return v
+        acting_instruct = ""
+        if emotion_tag:
+            # Check preset dictionary
+            for k, v in cls.EMOTION_INSTRUCT_MAP.items():
+                if k.lower() in emotion_tag.lower():
+                    acting_instruct = v
+                    break
 
-        # Fallback dynamic conversion
-        clean_tag = emotion_tag.replace("Current Shot Emotion:", "").strip()
-        return f"Speak in a {clean_tag.lower()} tone with authentic emotional acting and dramatic intensity"
+            if not acting_instruct:
+                clean_tag = emotion_tag.replace("Current Shot Emotion:", "").replace("Dynamic:", "").strip()
+                acting_instruct = f"Speak in a {clean_tag.lower()} tone with authentic emotional acting and dramatic intensity"
+        else:
+            acting_instruct = "Speak naturally with dramatic presence"
+
+        if base_instruct and base_instruct not in acting_instruct:
+            return f"{base_instruct}. {acting_instruct}"
+        return acting_instruct
 
     @classmethod
     def generate_audition(
@@ -178,12 +271,17 @@ class VoiceService:
         preset = cls.VOICE_PRESETS.get(voice_id, cls.VOICE_PRESETS["qwen_vivian"])
         text = sample_text or preset["sample_line"]
         speaker = preset.get("speaker", "Vivian")
+        base_inst = preset.get("base_instruct", "")
+
+        compiled_inst = instruct or base_inst or "Speak clearly and expressively with dramatic tone"
+        if base_inst and instruct and base_inst not in instruct:
+            compiled_inst = f"{base_inst}. {instruct}"
 
         provider = get_audio_provider(provider_name)
         req = AudioGenerationRequest(
             text=text,
             voice=speaker,
-            instruct=instruct or "Speak clearly and expressively with dramatic tone",
+            instruct=compiled_inst,
             speed=1.0
         )
         res = provider.generate_speech(req)
@@ -288,8 +386,8 @@ class VoiceService:
         preset = cls.VOICE_PRESETS.get(voice_id, cls.VOICE_PRESETS["qwen_vivian"])
         speaker = preset.get("speaker", "Vivian")
 
-        # Compile acting instruct prompt
-        compiled_instruct = cls.compile_emotion_instruct(emotion_tag=emotion, custom_instruct=custom_instruct)
+        # Compile acting instruct prompt with character voice persona and emotion
+        compiled_instruct = cls.compile_emotion_instruct(emotion_tag=emotion, custom_instruct=custom_instruct, voice_id=voice_id)
 
         provider = get_audio_provider(provider_name)
         req = AudioGenerationRequest(

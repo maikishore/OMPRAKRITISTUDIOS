@@ -8,25 +8,40 @@ from providers.audio.base import AudioGenerationRequest
 
 def test_voice_presets_catalog():
     presets = VoiceService.list_presets()
-    assert len(presets) >= 5
+    assert len(presets) >= 10
     keys = [p["key"] for p in presets]
     assert "qwen_vivian" in keys
     assert "qwen_eric" in keys
+    assert "qwen_emma_child" in keys
+    assert "qwen_timmy_child" in keys
+    assert "qwen_grandma_martha" in keys
+    assert "qwen_grandpa_arthur" in keys
     assert "qwen_uncle_martin" in keys
 
 def test_voice_suggestion_logic():
-    char_female = Character(id="c1", name="Lucy Vance", gender="Female", role="Protagonist")
-    char_male = Character(id="c2", name="David Cruz", gender="Male", role="Co-Protagonist")
-    char_boss = Character(id="c3", name="Marcus Kane", gender="Male", role="Antagonist")
+    char_female = Character(id="c1", name="Lucy Vance", gender="Female", role="Protagonist", age="26")
+    char_male = Character(id="c2", name="David Cruz", gender="Male", role="Co-Protagonist", age="28")
+    char_child_f = Character(id="c3", name="Emma", gender="Female", role="Mysterious Child", age="8")
+    char_child_m = Character(id="c4", name="Timmy", gender="Male", role="Young Kid", age="10")
+    char_elder_f = Character(id="c5", name="Martha", gender="Female", role="Elderly Grandmother", age="75")
+    char_elder_m = Character(id="c6", name="Arthur", gender="Male", role="Old Veteran / Grandfather", age="80")
 
     assert VoiceService.suggest_voice_for_character(char_female) == "qwen_vivian"
     assert VoiceService.suggest_voice_for_character(char_male) == "qwen_eric"
-    assert VoiceService.suggest_voice_for_character(char_boss) == "qwen_uncle_martin"
+    assert VoiceService.suggest_voice_for_character(char_child_f) == "qwen_emma_child"
+    assert VoiceService.suggest_voice_for_character(char_child_m) == "qwen_timmy_child"
+    assert VoiceService.suggest_voice_for_character(char_elder_f) == "qwen_grandma_martha"
+    assert VoiceService.suggest_voice_for_character(char_elder_m) == "qwen_grandpa_arthur"
 
 def test_emotion_instruct_compilation():
     whisper_inst = VoiceService.compile_emotion_instruct("Whispering & Terrified")
     assert "whisper" in whisper_inst.lower()
     assert "fear" in whisper_inst.lower() or "terrified" in whisper_inst.lower()
+
+    # Test with voice profile base instruct
+    child_inst = VoiceService.compile_emotion_instruct("Whispering & Terrified", voice_id="qwen_emma_child")
+    assert "child" in child_inst.lower() or "8-year-old" in child_inst.lower()
+    assert "whisper" in child_inst.lower()
 
     custom_inst = VoiceService.compile_emotion_instruct(custom_instruct="Crying and shouting in sheer panic")
     assert custom_inst == "Crying and shouting in sheer panic"

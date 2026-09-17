@@ -442,7 +442,7 @@ def render_shots_page():
                             key=f"dialogue_text_{shot.id}"
                         )
                     with d_inst_col2:
-                        compiled_default_instruct = VoiceService.compile_emotion_instruct(emotion_tag)
+                        compiled_default_instruct = VoiceService.compile_emotion_instruct(emotion_tag, voice_id=voice_id)
                         custom_instruct_input = st.text_area(
                             "🎯 Qwen3-TTS Acting Instruct Prompt",
                             value=compiled_default_instruct,
