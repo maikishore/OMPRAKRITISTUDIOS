@@ -671,7 +671,11 @@ def render_images_page():
                             st.markdown("#### Shot Keyframe Status")
                             linked_kf = None
                             if shot.reference_asset_ids:
-                                linked_kf = AssetService.get_asset(db, shot.reference_asset_ids[-1])
+                                for ref_id in reversed(shot.reference_asset_ids):
+                                    candidate = AssetService.get_asset(db, ref_id)
+                                    if candidate and candidate.type in ["KEYFRAME", "IMAGE", "CHARACTER_REF", "LOCATION_REF"]:
+                                        linked_kf = candidate
+                                        break
 
                             if linked_kf and Path(linked_kf.file_path).exists():
                                 st.image(linked_kf.file_path, caption=f"Keyframe: Scene {active_scene.scene_number:02d} - Shot {shot.shot_number:02d} ({shot.status})", use_container_width=True)
@@ -681,7 +685,7 @@ def render_images_page():
                                     st.success(f"Deleted keyframe and reset Shot {shot.shot_number:02d} to Draft.")
                                     st.rerun()
                             else:
-                                st.warning("No keyframe generated for this shot yet.")
+                                st.warning("No keyframe image generated for this shot yet.")
 
         # -------------------------------------------------------------
         # TAB 4: STUDIO ASSET GALLERY
