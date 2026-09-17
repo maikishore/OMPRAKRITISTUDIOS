@@ -19,6 +19,7 @@ from providers.image.factory import get_image_provider
 from providers.image.base import ImageGenerationRequest
 from core.enums import AssetType, ShotStatus
 from core.models import Asset
+from core.character_sheet_service import CharacterSheetService
 
 st.set_page_config(page_title="Image Generation & Asset Gallery | MicroDrama Studio", page_icon="🖼️", layout="wide")
 
@@ -76,61 +77,116 @@ def render_images_page():
         ])
 
         # -------------------------------------------------------------
-        # TAB 1: CHARACTER MASTER REFERENCES
+        # TAB 1: CHARACTER MASTER REFERENCES & MODEL SHEETS
         # -------------------------------------------------------------
         with tab_chars:
-            st.subheader("👤 Character Identity & Master Visual References")
-            st.caption("Generate ultra-consistent master reference portraits for each character. Once approved, this master face is injected into all downstream shots via IP-Adapter.")
+            st.subheader("👤 Character Identity, Model Sheets & Expression Matrix")
+            st.caption("Generate multi-angle model sheets, 360° turnarounds, and emotional expression matrices with FLUX to anchor downstream video models.")
 
             if not characters:
                 st.info("No characters created yet. Please create characters on Page 02 Characters.")
             else:
                 char_map = {c.id: c.name for c in characters}
-                selected_char_id = st.selectbox("Select Character to Generate", options=list(char_map.keys()), format_func=lambda x: char_map[x], key="char_select_box")
+                selected_char_id = st.selectbox("Select Character", options=list(char_map.keys()), format_func=lambda x: char_map[x], key="char_select_box")
                 character = CharacterService.get_character(db, selected_char_id)
 
                 if character:
-                    c_col1, c_col2 = st.columns([2, 2])
+                    c_col1, c_col2 = st.columns([2.2, 1.8])
                     with c_col1:
                         st.markdown(f"**Character:** {character.name} ({character.role or 'Protagonist'})")
                         st.markdown(f"**Physical Traits:** {getattr(character, 'physical_traits', character.appearance or 'N/A')}")
                         st.markdown(f"**Costume:** {getattr(character, 'signature_costume', character.clothing or 'N/A')}")
 
+                        st.markdown("---")
+                        st.markdown("##### 🎭 Character Sheet / Expression Preset")
+                        
+                        preset_list = CharacterSheetService.list_presets()
+                        preset_map = {p["key"]: f"{p['name']} ({p['aspect_ratio']})" for p in preset_list}
+                        
+                        selected_preset_key = st.selectbox(
+                            "Choose Angle / Expression Preset",
+                            options=list(preset_map.keys()),
+                            format_func=lambda x: preset_map[x],
+                            key=f"preset_sel_{character.id}"
+                        )
+                        
+                        compiled = CharacterSheetService.compile_prompt(character, selected_preset_key)
+
                         char_prompt = st.text_area(
-                            "Master Portrait Prompt",
-                            value=character.identity_prompt or f"Cinematic 35mm portrait photograph of {character.name}, {character.appearance}, wearing {character.clothing}, soft chiaroscuro lighting, 8k resolution, raw photo.",
-                            height=120,
-                            key=f"char_prompt_{character.id}"
+                            f"Compiled Prompt [{compiled['preset_name']}]",
+                            value=compiled["prompt"],
+                            height=125,
+                            key=f"char_prompt_{character.id}_{selected_preset_key}"
                         )
 
-                        p_c1, p_c2 = st.columns(2)
+                        p_c1, p_c2, p_c3 = st.columns([1, 1, 1])
                         with p_c1:
-                            char_seed = st.number_input("Seed", min_value=1, max_value=9999999, value=42, key=f"char_seed_{character.id}")
+                            char_seed = st.number_input("Seed", min_value=1, max_value=9999999, value=42, key=f"char_seed_{character.id}_{selected_preset_key}")
                         with p_c2:
-                            char_steps = st.slider("Inference Steps", min_value=4, max_value=35, value=28 if provider_choice == "modal" else 4, key=f"char_steps_{character.id}")
+                            char_steps = st.slider("Inference Steps", min_value=4, max_value=35, value=28 if provider_choice == "modal" else 4, key=f"char_steps_{character.id}_{selected_preset_key}")
+                        with p_c3:
+                            st.text_input("Resolution", value=f"{compiled['width']}x{compiled['height']}", disabled=True)
 
-                        if st.button("✨ Generate Character Reference", type="primary", use_container_width=True, key=f"gen_btn_char_{character.id}"):
-                            with st.spinner(f"Generating high-fidelity portrait for {character.name} using {provider_choice.upper()}..."):
+                        btn_col_a, btn_col_b = st.columns([1.5, 1.5])
+                        with btn_col_a:
+                            if st.button("✨ Generate Selected Preset", type="primary", use_container_width=True, key=f"gen_btn_char_{character.id}_{selected_preset_key}"):
+                                with st.spinner(f"Rendering {compiled['preset_name']} for {character.name} on {provider_choice.upper()}..."):
+                                    provider = get_image_provider(provider_choice)
+                                    req = ImageGenerationRequest(
+                                        prompt=char_prompt,
+                                        width=compiled["width"],
+                                        height=compiled["height"],
+                                        num_inference_steps=char_steps,
+                                        seed=int(char_seed)
+                                    )
+                                    res = provider.generate(req)
+                                    saved_asset = AssetService.save_image_asset(
+                                        db=db,
+                                        project_id=project.id,
+                                        asset_type=AssetType.CHARACTER_SHEET.value if "TURNAROUND" in selected_preset_key else AssetType.CHARACTER_REFERENCE.value,
+                                        image_bytes=res.image_bytes,
+                                        prompt=char_prompt,
+                                        seed=int(char_seed),
+                                        provider=provider_choice,
+                                        model="FLUX.1 [dev]" if provider_choice == "modal" else "FLUX.1 [schnell]",
+                                        parameters={"preset_key": selected_preset_key, "preset_name": compiled["preset_name"]}
+                                    )
+                                    # If no master is set yet and this is master portrait, auto-link
+                                    if selected_preset_key == "MASTER_PORTRAIT" and not character.master_reference_asset_id:
+                                        AssetService.set_character_master_reference(db, character.id, saved_asset.id)
+                                    st.success(f"Generated & Saved `{saved_asset.id[:8]}` ({compiled['preset_name']})!")
+                                    st.rerun()
+
+                        with btn_col_b:
+                            if st.button("⚡ 1-Click Core Suite (4 Assets)", use_container_width=True, help="Batch renders Master Portrait, 3-Angle Turnaround, Terror Expression, and Full Body Stance in sequence."):
+                                core_suite_keys = ["MASTER_PORTRAIT", "TURNAROUND_3ANGLE", "EXPRESSION_TERROR", "FULL_BODY_STANCE"]
+                                progress_bar = st.progress(0)
                                 provider = get_image_provider(provider_choice)
-                                req = ImageGenerationRequest(
-                                    prompt=char_prompt,
-                                    width=768,
-                                    height=1344,
-                                    num_inference_steps=char_steps,
-                                    seed=int(char_seed)
-                                )
-                                res = provider.generate(req)
-                                saved_asset = AssetService.save_image_asset(
-                                    db=db,
-                                    project_id=project.id,
-                                    asset_type=AssetType.CHARACTER_REFERENCE.value,
-                                    image_bytes=res.image_bytes,
-                                    prompt=char_prompt,
-                                    seed=int(char_seed),
-                                    provider=provider_choice,
-                                    model="FLUX.1 [dev]" if provider_choice == "modal" else "FLUX.1 [schnell]"
-                                )
-                                st.success(f"Generated and stored reference asset `{saved_asset.id[:8]}`!")
+                                for idx, p_key in enumerate(core_suite_keys):
+                                    c_spec = CharacterSheetService.compile_prompt(character, p_key)
+                                    with st.spinner(f"Generating {c_spec['preset_name']} ({idx+1}/{len(core_suite_keys)})..."):
+                                        r = provider.generate(ImageGenerationRequest(
+                                            prompt=c_spec["prompt"],
+                                            width=c_spec["width"],
+                                            height=c_spec["height"],
+                                            num_inference_steps=char_steps,
+                                            seed=int(char_seed) + idx * 10
+                                        ))
+                                        sa = AssetService.save_image_asset(
+                                            db=db,
+                                            project_id=project.id,
+                                            asset_type=AssetType.CHARACTER_SHEET.value if "TURNAROUND" in p_key else AssetType.CHARACTER_REFERENCE.value,
+                                            image_bytes=r.image_bytes,
+                                            prompt=c_spec["prompt"],
+                                            seed=int(char_seed) + idx * 10,
+                                            provider=provider_choice,
+                                            model="FLUX.1 [dev]" if provider_choice == "modal" else "FLUX.1 [schnell]",
+                                            parameters={"preset_key": p_key, "preset_name": c_spec["preset_name"]}
+                                        )
+                                        if p_key == "MASTER_PORTRAIT" and not character.master_reference_asset_id:
+                                            AssetService.set_character_master_reference(db, character.id, sa.id)
+                                    progress_bar.progress((idx + 1) / len(core_suite_keys))
+                                st.success(f"🎉 Generated full Character Sheet Suite for {character.name}!")
                                 st.rerun()
 
                     with c_col2:
@@ -139,7 +195,7 @@ def render_images_page():
 
                         if master_asset and Path(master_asset.file_path).exists():
                             st.image(master_asset.file_path, caption=f"⭐ APPROVED MASTER FACE: {character.name}", use_container_width=True)
-                            st.success("✅ This image is active as the master reference for IP-Adapter face locking.")
+                            st.success("✅ Active master anchor for character face conditioning.")
                             if st.button("🗑️ Delete Master Reference", key=f"del_master_char_{master_asset.id}"):
                                 AssetService.delete_asset(db, master_asset.id)
                                 st.success(f"Deleted master reference for {character.name}.")
@@ -147,17 +203,19 @@ def render_images_page():
                         else:
                             st.warning("⚠️ No approved master reference asset set for this character.")
 
-                        # Show recent candidate portraits
-                        recent_char_assets = db.query(Asset).filter(
+                        # Show candidate portraits & model sheets
+                        char_assets = db.query(Asset).filter(
                             Asset.project_id == project.id,
-                            Asset.type == AssetType.CHARACTER_REFERENCE.value
-                        ).order_by(Asset.created_at.desc()).limit(6).all() if characters else []
+                            Asset.type.in_([AssetType.CHARACTER_REFERENCE.value, AssetType.CHARACTER_SHEET.value])
+                        ).order_by(Asset.created_at.desc()).limit(8).all() if characters else []
 
-                        if recent_char_assets:
-                            st.markdown("##### Candidate Reference Images")
-                            for cand in recent_char_assets:
+                        if char_assets:
+                            st.markdown("##### Generated Model Sheets & Variations")
+                            for cand in char_assets:
                                 if Path(cand.file_path).exists():
                                     st.image(cand.file_path, width=220)
+                                    p_label = (cand.parameters or {}).get("preset_name", cand.type) if isinstance(cand.parameters, dict) else cand.type
+                                    st.caption(f"**{p_label}** (`{cand.id[:6]}`)")
                                     cand_b1, cand_b2 = st.columns([3, 1])
                                     with cand_b1:
                                         if st.button(f"⭐ Set Master ({cand.id[:6]})", key=f"set_master_char_{cand.id}"):
