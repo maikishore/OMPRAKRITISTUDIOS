@@ -11,7 +11,10 @@ try:
     import modal
     app = modal.App("microdrama-studio-image")
 
-    # Define container image with diffusers & torch
+    # Persistent Volume for caching model weights permanently across containers
+    model_volume = modal.Volume.from_name("microdrama-model-cache", create_if_missing=True)
+
+    # Define container image with diffusers & torch & fast transfer
     image_env = (
         modal.Image.debian_slim(python_version="3.11")
         .apt_install("git")
@@ -24,9 +27,14 @@ try:
             "numpy",
             "torch",
             "pillow",
-            "torchvision"
+            "torchvision",
+            "hf_transfer"
         )
-        .env({"PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"})
+        .env({
+            "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+            "HF_HUB_ENABLE_HF_TRANSFER": "1",
+            "HF_HOME": "/cache/huggingface"
+        })
     )
 
     # Optional HF secrets
@@ -39,12 +47,13 @@ try:
     @app.cls(
         image=image_env,
         gpu="L4",
+        volumes={"/cache": model_volume},
         secrets=secrets,
         timeout=600,
-        scaledown_window=300
+        scaledown_window=600  # Keep warm for 10 minutes (600 seconds) after each request
     )
     class FluxImageGenerator:
-        """Modal GPU Class running FLUX pipeline on L4 GPU with memory optimizations."""
+        """Modal GPU Class running FLUX pipeline on L4 GPU with persistent caching & 10min warm window."""
 
         @modal.enter()
         def load_model(self):
