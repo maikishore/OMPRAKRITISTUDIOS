@@ -32,13 +32,13 @@ class ModalService:
         },
         {
             "id": "audio",
-            "name": "Kokoro TTS & Audio Engine",
+            "name": "Qwen3-TTS 1.7B Emotional Audio Engine",
             "app_name": "microdrama-studio-audio",
-            "class_name": "KokoroAudioWorker",
+            "class_name": "QwenAudioWorker",
             "worker_file": "modal/audio_worker.py",
-            "description": "Kokoro-82M multi-voice character dialogue synthesis and SFX.",
-            "gpu": "NVIDIA T4 / CPU",
-            "phase": "Phase 6"
+            "description": "Qwen3-TTS-12Hz-1.7B CustomVoice & VoiceDesign with natural language instruct emotion steering.",
+            "gpu": "NVIDIA L4 (24GB VRAM)",
+            "phase": "Voice / Dialogue"
         }
     ]
 

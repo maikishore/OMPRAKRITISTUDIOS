@@ -8,7 +8,7 @@ from providers.audio.mock_provider import MockAudioProvider
 logger = logging.getLogger(__name__)
 
 class ModalAudioProvider(AudioProvider):
-    """Invokes remote Modal serverless KokoroAudioWorker on Modal Cloud."""
+    """Invokes remote Modal serverless QwenAudioWorker on Modal Cloud."""
 
     def __init__(self):
         self.fallback = MockAudioProvider()
@@ -16,12 +16,13 @@ class ModalAudioProvider(AudioProvider):
     def generate_speech(self, request: AudioGenerationRequest) -> AudioGenerationResult:
         try:
             import modal
-            cls = modal.Cls.from_name("microdrama-studio-audio", "KokoroAudioWorker")
+            cls = modal.Cls.from_name("microdrama-studio-audio", "QwenAudioWorker")
             instance = cls()
 
             raw_wav_bytes = instance.generate_speech.remote(
                 text=request.text,
-                voice=request.voice or "af_sarah",
+                voice=request.voice or "Vivian",
+                instruct=request.instruct,
                 speed=request.speed or 1.0
             )
 
@@ -34,7 +35,12 @@ class ModalAudioProvider(AudioProvider):
                     sample_rate=24000,
                     duration_seconds=max(0.5, duration),
                     mime_type="audio/wav",
-                    parameters={"provider": "modal", "model": "Kokoro-82M on Modal", "voice": request.voice}
+                    parameters={
+                        "provider": "modal",
+                        "model": "Qwen3-TTS 1.7B on Modal",
+                        "voice": request.voice,
+                        "instruct": request.instruct
+                    }
                 )
         except Exception as e:
             logger.info(f"Modal Audio lookup skipped ({e}); using local mock audio provider.")

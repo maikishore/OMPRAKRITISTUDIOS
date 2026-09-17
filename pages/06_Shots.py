@@ -22,8 +22,8 @@ from core.enums import ShotStatus, ProjectStatus
 st.set_page_config(page_title="Shotlist, Prompts & Audio | MicroDrama Studio", page_icon="🎞️", layout="wide")
 
 def render_shots_page():
-    st.title("🎞️ Shot Breakdown, Deterministic Prompts & Voice Audio")
-    st.caption("Break down scenes into granular cinematic shots, compile production prompts, and synthesize emotional character dialogue audio.")
+    st.title("🎞️ Shot Breakdown, Deterministic Prompts & Qwen3-TTS Audio")
+    st.caption("Direct shots, compile deterministic prompts, and synthesize emotional character acting audio with Qwen3-TTS 1.7B.")
 
     with get_db_session() as db:
         projects = ProjectService.list_projects(db)
@@ -196,7 +196,7 @@ def render_shots_page():
             dialogue_shots = [s for s in shots if s.dialogue and s.dialogue.strip()]
             if dialogue_shots:
                 if st.button(f"🎙️ Batch Synthesize Scene Dialogue ({len(dialogue_shots)} lines)", use_container_width=True):
-                    with st.spinner(f"Synthesizing dialogue audio for {len(dialogue_shots)} shots via Kokoro-82M..."):
+                    with st.spinner(f"Synthesizing emotional dialogue for {len(dialogue_shots)} shots via Qwen3-TTS 1.7B..."):
                         synth_count = 0
                         for d_shot in dialogue_shots:
                             # Determine speaking character
@@ -215,7 +215,7 @@ def render_shots_page():
                                     emotion=d_shot.emotion
                                 )
                                 synth_count += 1
-                        st.success(f"✨ Synthesized audio for {synth_count} shots in Scene {scene.scene_number:02d}!")
+                        st.success(f"✨ Synthesized Qwen3-TTS audio for {synth_count} shots in Scene {scene.scene_number:02d}!")
                         st.rerun()
 
         # Shot List Display
@@ -241,7 +241,7 @@ def render_shots_page():
             )
 
             with st.expander(exp_label, expanded=(shot.shot_number <= 2)):
-                tab_direct, tab_audio = st.tabs(["🎬 Cinematic Direction & Prompts", "🎙️ Spoken Dialogue & Voice Audio"])
+                tab_direct, tab_audio = st.tabs(["🎬 Cinematic Direction & Prompts", "🎙️ Spoken Dialogue & Qwen3-TTS Acting"])
 
                 with tab_direct:
                     with st.form(key=f"shot_form_{shot.id}"):
@@ -369,7 +369,7 @@ def render_shots_page():
                             st.rerun()
 
                 with tab_audio:
-                    st.markdown("#### 🎙️ Spoken Dialogue & Emotion Synthesis")
+                    st.markdown("#### 🎙️ Qwen3-TTS 1.7B Emotional Acting & Voice Synthesis")
                     
                     # Select speaking character
                     char_names = [c.name for c in characters] if characters else ["Narrator"]
@@ -389,38 +389,50 @@ def render_shots_page():
                         
                         voice_id = getattr(speaker_char, "voice_description", "") if speaker_char else ""
                         if not voice_id or voice_id not in VoiceService.VOICE_PRESETS:
-                            voice_id = VoiceService.suggest_voice_for_character(speaker_char) if speaker_char else "af_sarah"
+                            voice_id = VoiceService.suggest_voice_for_character(speaker_char) if speaker_char else "qwen_vivian"
                         preset_info = VoiceService.VOICE_PRESETS.get(voice_id, {})
                         
-                        st.caption(f"🎭 **Assigned Voice Profile:** `{preset_info.get('name', voice_id)}` ({preset_info.get('gender', '')}, {preset_info.get('accent', '')})")
+                        st.caption(f"🎭 **Assigned Qwen Voice:** `{preset_info.get('name', voice_id)}` ({preset_info.get('tone', '')})")
 
                     with d_col2:
                         emotion_tag = st.selectbox(
                             "Emotional Delivery / Acting Style",
                             options=[
                                 f"Current Shot Emotion: {shot.emotion or 'Neutral'}",
-                                "Tense & Breathless",
                                 "Whispering & Terrified",
                                 "Urgent & Shouting",
+                                "Tense & Breathless",
                                 "Cold & Controlled",
                                 "Grounded & Analytical",
-                                "Sarcastic & Dismissive"
+                                "Sarcastic & Dismissive",
+                                "Sorrowful & Weeping"
                             ],
                             key=f"emotion_delivery_{shot.id}"
                         )
 
-                    edited_dialogue = st.text_area(
-                        "Spoken Line / Dialogue Text",
-                        value=shot.dialogue or "",
-                        placeholder="e.g. Someone is inside the building with us... quiet!",
-                        height=80,
-                        key=f"dialogue_text_{shot.id}"
-                    )
+                    d_inst_col1, d_inst_col2 = st.columns([1, 1])
+                    with d_inst_col1:
+                        edited_dialogue = st.text_area(
+                            "Spoken Line / Dialogue Text",
+                            value=shot.dialogue or "",
+                            placeholder="e.g. Someone is inside the building with us... quiet!",
+                            height=80,
+                            key=f"dialogue_text_{shot.id}"
+                        )
+                    with d_inst_col2:
+                        compiled_default_instruct = VoiceService.compile_emotion_instruct(emotion_tag)
+                        custom_instruct_input = st.text_area(
+                            "🎯 Qwen3-TTS Acting Instruct Prompt",
+                            value=compiled_default_instruct,
+                            height=80,
+                            help="Natural language acting instructions passed directly to Qwen3-TTS 1.7B",
+                            key=f"custom_instruct_{shot.id}"
+                        )
 
                     aud_action_col1, aud_action_col2 = st.columns([2, 3])
                     with aud_action_col1:
                         synth_btn = st.button(
-                            "🎙️ Synthesize Dialogue Audio",
+                            "🎙️ Synthesize with Qwen3-TTS",
                             key=f"synth_btn_{shot.id}",
                             type="primary",
                             use_container_width=True
@@ -428,7 +440,7 @@ def render_shots_page():
 
                     with aud_action_col2:
                         save_dialogue_btn = st.button(
-                            "💾 Save Line to Shot",
+                            "💾 Save Line & Emotion to Shot",
                             key=f"save_line_{shot.id}",
                             use_container_width=True
                         )
@@ -444,21 +456,22 @@ def render_shots_page():
                         elif not speaker_char:
                             st.warning("Please ensure a valid character is assigned.")
                         else:
-                            with st.spinner(f"Generating voice performance for {speaker_name} using Kokoro-82M..."):
+                            with st.spinner(f"Directing {speaker_name} with Qwen3-TTS 1.7B ({custom_instruct_input})..."):
                                 # Update dialogue text on shot first
                                 ShotService.update_shot(db, shot.id, {"dialogue": edited_dialogue})
                                 
-                                # Synthesize speech
+                                # Synthesize speech with Qwen3-TTS
                                 audio_asset = VoiceService.synthesize_shot_dialogue(
                                     db=db,
                                     project_id=project.id,
                                     shot_id=shot.id,
                                     character=speaker_char,
                                     dialogue_text=edited_dialogue,
-                                    emotion=emotion_tag
+                                    emotion=emotion_tag,
+                                    custom_instruct=custom_instruct_input
                                 )
                                 if audio_asset:
-                                    st.success(f"✨ Dialogue audio synthesized! Duration: {audio_asset.duration:.1f}s")
+                                    st.success(f"✨ Qwen3-TTS dialogue audio synthesized! Duration: {audio_asset.duration:.1f}s")
                                     st.rerun()
                                 else:
                                     st.error("Dialogue audio synthesis failed.")
@@ -466,13 +479,13 @@ def render_shots_page():
                     # Audio Player Card
                     if audio_asset and audio_asset.file_path and Path(audio_asset.file_path).exists():
                         st.markdown("---")
-                        st.markdown("##### 🎧 Active Shot Audio Track")
+                        st.markdown("##### 🎧 Active Shot Audio Track (Qwen3-TTS 1.7B)")
                         with open(audio_asset.file_path, "rb") as f:
                             audio_bytes = f.read()
                         st.audio(audio_bytes, format="audio/wav")
-                        st.caption(f"📁 **File:** `{Path(audio_asset.file_path).name}` | ⏱️ **Audio Length:** `{audio_asset.duration:.1f}s` | ⏱️ **Shot Duration:** `{shot.duration_seconds}s`")
+                        st.caption(f"📁 **File:** `{Path(audio_asset.file_path).name}` | ⏱️ **Audio Length:** `{audio_asset.duration:.1f}s` | ⏱️ **Shot Duration:** `{shot.duration_seconds}s` | 🎭 **Instruct:** `{audio_asset.parameters.get('instruct', 'Default')}`")
                     elif shot.dialogue:
-                        st.info("💡 Dialogue line is set, but audio is not yet generated. Click **'🎙️ Synthesize Dialogue Audio'** above.")
+                        st.info("💡 Dialogue line is set, but audio is not yet generated. Click **'🎙️ Synthesize with Qwen3-TTS'** above.")
 
         # Global Shotlist Approval
         st.markdown("---")

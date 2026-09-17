@@ -5,7 +5,8 @@ from typing import Optional, Dict, Any
 @dataclass
 class AudioGenerationRequest:
     text: str
-    voice: str = "af_sarah"
+    voice: str = "qwen_vivian"
+    instruct: Optional[str] = None
     speed: float = 1.0
     reference_audio: Optional[bytes] = None
     parameters: Optional[Dict[str, Any]] = None

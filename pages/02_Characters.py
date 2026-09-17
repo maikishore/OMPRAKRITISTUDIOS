@@ -81,11 +81,11 @@ try:
         for idx, char in enumerate(characters):
             with st.expander(f"👤 {char.name} ({char.role or 'Character'}) {'✅ Approved' if char.is_approved else '⏳ Draft'}", expanded=(idx==0)):
                 # Voice Casting & Audition Section
-                st.markdown("##### 🎙️ Voice Casting & Acoustic Profile")
-                v_col1, v_col2, v_col3 = st.columns([2, 2, 1])
+                st.markdown("##### 🎙️ Voice Casting & Acoustic Profile (Qwen3-TTS 1.7B)")
+                v_col1, v_col2, v_col3, v_col4 = st.columns([2, 2, 2, 1])
                 
                 v_presets = VoiceService.list_presets()
-                v_map = {p["key"]: f"{p['name']} [{p['tone']}]" for p in v_presets}
+                v_map = {p["key"]: f"{p['name']}" for p in v_presets}
                 default_voice = char.voice_description if char.voice_description in v_map else VoiceService.suggest_voice_for_character(char)
                 v_keys = list(v_map.keys())
                 v_idx = v_keys.index(default_voice) if default_voice in v_keys else 0
@@ -105,14 +105,20 @@ try:
                         key=f"aud_text_{char.id}"
                     )
                 with v_col3:
+                    aud_instruct = st.text_input(
+                        "Audition Emotion / Instruct",
+                        value="Speak with dramatic presence and emotional tension",
+                        key=f"aud_inst_{char.id}"
+                    )
+                with v_col4:
                     st.write("") # spacing
-                    audition_btn = st.button("🔊 Audition Voice", key=f"btn_aud_{char.id}", use_container_width=True)
+                    audition_btn = st.button("🔊 Audition", key=f"btn_aud_{char.id}", use_container_width=True)
 
                 if audition_btn:
-                    with st.spinner(f"Synthesizing voice audition for {char.name}..."):
-                        aud_bytes = VoiceService.generate_audition(sel_voice_id, audition_text, provider_name="modal")
+                    with st.spinner(f"Synthesizing Qwen3-TTS voice audition for {char.name}..."):
+                        aud_bytes = VoiceService.generate_audition(sel_voice_id, audition_text, instruct=aud_instruct, provider_name="modal")
                         st.audio(aud_bytes, format="audio/wav")
-                        st.success(f"Casting preview for **{char.name}** ({VoiceService.VOICE_PRESETS[sel_voice_id]['name']})")
+                        st.success(f"Casting preview for **{char.name}** ({VoiceService.VOICE_PRESETS[sel_voice_id]['name']}) | Instruct: `{aud_instruct}`")
 
                 st.markdown("---")
 

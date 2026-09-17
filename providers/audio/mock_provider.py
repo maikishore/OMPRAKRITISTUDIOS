@@ -14,7 +14,8 @@ class MockAudioProvider(AudioProvider):
         num_samples = int(sample_rate * duration)
 
         # Generate a pleasant multi-harmonic tone
-        freq = 440.0 if "am_" in request.voice else 660.0
+        is_male = any(m in request.voice.lower() for m in ["male", "eric", "martin", "ryan", "dylan", "am_"])
+        freq = 380.0 if is_male else 580.0
         audio_data = bytearray()
         for i in range(num_samples):
             t = float(i) / sample_rate
