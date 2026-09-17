@@ -111,15 +111,29 @@ try:
 
             if self.pipe:
                 if image_bytes:
-                    print(f"Running Image-to-Image generation with prompt: {prompt[:80]}...")
+                    print(f"Running Image-to-Image / Face conditioning with prompt: {prompt[:80]}...")
                     init_image = Image.open(io.BytesIO(image_bytes)).convert("RGB").resize((width, height))
-                    result = self.pipe(
-                        prompt=prompt,
-                        image=init_image,
-                        num_inference_steps=num_inference_steps,
-                        guidance_scale=guidance_scale,
-                        generator=generator
-                    ).images[0]
+                    try:
+                        from diffusers import FluxImg2ImgPipeline
+                        img2img = FluxImg2ImgPipeline.from_pipe(self.pipe)
+                        result = img2img(
+                            prompt=prompt,
+                            image=init_image,
+                            strength=strength,
+                            num_inference_steps=num_inference_steps,
+                            guidance_scale=guidance_scale,
+                            generator=generator
+                        ).images[0]
+                    except Exception as e_img2img:
+                        print(f"Img2Img fallback to standard pipe ({e_img2img})...")
+                        result = self.pipe(
+                            prompt=prompt,
+                            width=width,
+                            height=height,
+                            num_inference_steps=num_inference_steps,
+                            guidance_scale=guidance_scale,
+                            generator=generator
+                        ).images[0]
                 else:
                     print(f"Running Text-to-Image generation with prompt: {prompt[:80]}...")
                     result = self.pipe(

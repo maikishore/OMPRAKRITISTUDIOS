@@ -234,9 +234,15 @@ def render_images_page():
                             return True
                         if c.master_reference_asset_id == a.id:
                             return True
-                        if params.get("character_name", "").lower() == c.name.lower():
+                        c_name_low = c.name.lower().strip()
+                        param_name_low = str(params.get("character_name", "")).lower().strip()
+                        if param_name_low and (c_name_low in param_name_low or param_name_low in c_name_low):
                             return True
-                        if c.name.lower() in (a.prompt or "").lower():
+                        prompt_low = (a.prompt or "").lower()
+                        if c_name_low in prompt_low:
+                            return True
+                        c_tokens = [t for t in c_name_low.replace("(", " ").replace(")", " ").replace("-", " ").split() if len(t) > 1]
+                        if any(t in prompt_low for t in c_tokens):
                             return True
                         return False
 
@@ -263,8 +269,8 @@ def render_images_page():
                                         st.caption(f"ID: `{asset.id[:8]}` | Seed: `{asset.seed}` | {asset.width}x{asset.height}")
 
                                         # Action Row 1: Master, Download, Delete
-                                        b_col1, b_col2, b_col3 = st.columns([1.5, 1, 1])
-                                        with b_col1:
+                                        ab_col1, ab_col2, ab_col3 = st.columns([1.5, 1, 1])
+                                        with ab_col1:
                                             if not is_master:
                                                 if st.button("⭐ Set Master", key=f"set_m_{asset.id}", use_container_width=True):
                                                     AssetService.set_character_master_reference(db, character.id, asset.id)
@@ -272,11 +278,11 @@ def render_images_page():
                                                     st.rerun()
                                             else:
                                                 st.button("✅ Active", key=f"active_m_{asset.id}", disabled=True, use_container_width=True)
-                                        with b_col2:
+                                        with ab_col2:
                                             with open(asset.file_path, "rb") as af:
-                                                st.download_button("⬇️", data=af, file_name=f"{character.name}_{asset.id[:6]}.png", mime="image/png", key=f"dl_c_{asset.id}", use_container_width=True)
-                                        with b_col3:
-                                            if st.button("🗑️", key=f"del_c_{asset.id}", help="Delete this pose", use_container_width=True):
+                                                st.download_button("⬇️", data=af, file_name=f"{character.name}_{asset.id[:6]}.png", mime="image/png", key=f"dl_{asset.id}", use_container_width=True)
+                                        with ab_col3:
+                                            if st.button("🗑️", key=f"del_char_{asset.id}", help="Delete this pose", use_container_width=True):
                                                 AssetService.delete_asset(db, asset.id)
                                                 st.success(f"Deleted pose asset `{asset.id[:8]}`.")
                                                 st.rerun()
@@ -296,7 +302,7 @@ def render_images_page():
                                                 regen_steps = st.slider("Steps", min_value=4, max_value=35, value=28 if provider_choice == "modal" else 4, key=f"rg_steps_{asset.id}")
 
                                             if st.button("🚀 Re-Render This Pose", type="primary", use_container_width=True, key=f"btn_regen_{asset.id}"):
-                                                with st.spinner(f"Regenerating pose with custom prompt on {provider_choice.upper()}..."):
+                                                with st.spinner(f"Regenerating pose on {provider_choice.upper()}..."):
                                                     provider = get_image_provider(provider_choice)
                                                     r_req = ImageGenerationRequest(
                                                         prompt=custom_regen_prompt,
@@ -306,7 +312,7 @@ def render_images_page():
                                                         seed=int(regen_seed)
                                                     )
                                                     r_res = provider.generate(r_req)
-                                                    # Save as new asset variation with updated prompt tagged to this character
+                                                    # Save as new asset variation tagged to this character
                                                     r_params = dict(asset.parameters or {})
                                                     r_params["character_id"] = character.id
                                                     r_params["character_name"] = character.name
@@ -332,14 +338,14 @@ def render_images_page():
                                             st.rerun()
 
         # -------------------------------------------------------------
-        # TAB 2: LOCATION MASTER REFERENCES & STAGING SUITE
+        # TAB 2: LOCATION MASTER REFERENCES & WORLD CONCEPT STILLS
         # -------------------------------------------------------------
         with tab_locs:
-            st.subheader("📍 Location Environments & Spatial Staging Suite")
-            st.caption("Generate multi-perspective establishing stills, reverse angles, emergency blackout states, and CCTV views for spatial continuity in downstream video models.")
+            st.subheader("📍 Location Master References & Staging Angles")
+            st.caption("Generate multi-angle environment reference plates, lighting variations, and CCTV concepts to ensure scene architectural continuity.")
 
             if not locations:
-                st.info("No locations found. Please configure locations on Page 03 Locations.")
+                st.info("No locations created yet. Please create locations on Page 03 Locations.")
             else:
                 loc_map = {l.id: l.name for l in locations}
                 selected_loc_id = st.selectbox("Select Active Location", options=list(loc_map.keys()), format_func=lambda x: loc_map[x], key="loc_select_box")
@@ -351,23 +357,22 @@ def render_images_page():
                         lh_c1, lh_c2, lh_c3 = st.columns([1.5, 2.5, 1.5])
                         with lh_c1:
                             st.markdown(f"### {loc.name}")
-                            st.caption(f"**Type:** Spatial Environment")
+                            st.caption(f"**Type:** {getattr(loc, 'environment_type', 'Interior')}")
                         with lh_c2:
-                            st.markdown(f"**Architecture:** {loc.architecture or 'Modern commercial'}")
-                            st.markdown(f"**Materials / Textures:** {getattr(loc, 'materials', 'Glass, steel, polished stone')}")
-                            st.markdown(f"**Baseline Lighting:** {loc.lighting or 'Commercial lighting'}")
+                            st.markdown(f"**Architecture / Lighting:** {getattr(loc, 'lighting', 'N/A')}")
+                            st.markdown(f"**Key Materials:** {getattr(loc, 'materials', getattr(loc, 'atmosphere', 'N/A'))}")
                         with lh_c3:
-                            master_loc_asset = AssetService.get_asset(db, loc.master_reference_asset_id) if loc.master_reference_asset_id else None
-                            if master_loc_asset and Path(master_loc_asset.file_path).exists():
-                                st.success("⭐ **Master Environment Set**")
-                                st.image(master_loc_asset.file_path, width=120)
+                            loc_master_asset = AssetService.get_asset(db, loc.master_reference_asset_id) if loc.master_reference_asset_id else None
+                            if loc_master_asset and Path(loc_master_asset.file_path).exists():
+                                st.success("⭐ **Master Environment Locked**")
+                                st.image(loc_master_asset.file_path, width=120)
                             else:
-                                st.warning("⚠️ No Master Still Set")
+                                st.warning("⚠️ No Master Environment Set")
 
                     st.markdown("---")
 
-                    # 2. ENVIRONMENT STAGING PRESET GENERATOR
-                    st.markdown("#### 🏛️ Environment Angle & Mood Generator")
+                    # 2. GENERATION STUDIO (Single Preset or Batch Core Suite)
+                    st.markdown("#### 🏛️ Environment Staging Studio")
                     with st.container(border=True):
                         loc_presets = LocationSheetService.list_presets()
                         loc_preset_map = {p["key"]: f"{p['name']} ({p['aspect_ratio']})" for p in loc_presets}
@@ -375,7 +380,7 @@ def render_images_page():
                         lp_sel_col, lp_desc_col = st.columns([2, 2])
                         with lp_sel_col:
                             selected_loc_preset_key = st.selectbox(
-                                "Select Spatial Angle / Lighting State Preset",
+                                "Select Staging View / Perspective",
                                 options=list(loc_preset_map.keys()),
                                 format_func=lambda x: loc_preset_map[x],
                                 key=f"loc_preset_sel_{loc.id}"
@@ -489,9 +494,15 @@ def render_images_page():
                             return True
                         if l.master_reference_asset_id == a.id:
                             return True
-                        if params.get("location_name", "").lower() == l.name.lower():
+                        l_name_low = l.name.lower().strip()
+                        param_name_low = str(params.get("location_name", "")).lower().strip()
+                        if param_name_low and (l_name_low in param_name_low or param_name_low in l_name_low):
                             return True
-                        if l.name.lower() in (a.prompt or "").lower():
+                        prompt_low = (a.prompt or "").lower()
+                        if l_name_low in prompt_low:
+                            return True
+                        l_tokens = [t for t in l_name_low.replace("(", " ").replace(")", " ").replace("-", " ").split() if len(t) > 2]
+                        if any(t in prompt_low for t in l_tokens):
                             return True
                         return False
 
@@ -587,7 +598,7 @@ def render_images_page():
                                             st.rerun()
 
         # -------------------------------------------------------------
-        # TAB 3: SHOT KEYFRAMES (FACE-LOCKED)
+        # TAB 3: SHOT KEYFRAMES (FACE-LOCKED & LOCATION-ANCHORED)
         # -------------------------------------------------------------
         with tab_shots:
             st.subheader("🎞️ Shot Keyframe Generation & Face-Locking")
@@ -615,40 +626,173 @@ def render_images_page():
                             st.markdown(f"**Camera / Lens:** {shot.shot_type}, {shot.camera_angle}, {shot.lens}")
                             st.markdown(f"**Characters in Frame:** {', '.join(shot.characters) if shot.characters else 'None'}")
 
-                            # Check for Master References to inject
+                            # 1. ROBUST CHARACTER & LOCATION REFERENCE RESOLVER
+                            def resolve_character_match(raw_name: str, char_list: list):
+                                if not raw_name:
+                                    return None
+                                r_clean = raw_name.lower().strip()
+                                # Exact match
+                                for c in char_list:
+                                    if c.name.lower().strip() == r_clean:
+                                        return c
+                                # Substring match
+                                for c in char_list:
+                                    c_low = c.name.lower().strip()
+                                    if r_clean in c_low or c_low in r_clean:
+                                        return c
+                                # Token match (e.g. "Lucy" in "Lucy Vance")
+                                r_tokens = [t for t in r_clean.replace("(", " ").replace(")", " ").replace("-", " ").split() if len(t) > 1]
+                                for c in char_list:
+                                    c_tokens = [t for t in c.name.lower().replace("(", " ").replace(")", " ").replace("-", " ").split() if len(t) > 1]
+                                    if any(t in c_tokens for t in r_tokens) or any(t in r_tokens for t in c_tokens):
+                                        return c
+                                return None
+
                             conditioning_refs = []
                             ref_descriptions = []
-                            for ch_name in shot.characters:
-                                for ch in characters:
-                                    if ch.name.lower() == ch_name.lower() and ch.master_reference_asset_id:
-                                        m_asset = AssetService.get_asset(db, ch.master_reference_asset_id)
-                                        if m_asset and Path(m_asset.file_path).exists():
-                                            with open(m_asset.file_path, "rb") as rf:
-                                                conditioning_refs.append(rf.read())
-                                                ref_descriptions.append(f"🔒 {ch.name} Master Face (Asset `{m_asset.id[:8]}`)")
+                            missing_master_chars = []
 
+                            # Resolve Character Masters
+                            for ch_name in (shot.characters or []):
+                                matched_char = resolve_character_match(ch_name, characters)
+                                if matched_char:
+                                    # Check master reference
+                                    m_asset = None
+                                    if matched_char.master_reference_asset_id:
+                                        m_asset = AssetService.get_asset(db, matched_char.master_reference_asset_id)
+                                    
+                                    # Fallback: Look up any generated character asset for this character
+                                    if not m_asset or not Path(m_asset.file_path).exists():
+                                        fallback_char_asset = db.query(Asset).filter(
+                                            Asset.project_id == project.id,
+                                            Asset.type.in_([AssetType.CHARACTER_REFERENCE.value, AssetType.CHARACTER_SHEET.value])
+                                        ).order_by(Asset.created_at.desc()).all()
+                                        for cand in fallback_char_asset:
+                                            if is_for_character(cand, matched_char) and Path(cand.file_path).exists():
+                                                m_asset = cand
+                                                AssetService.set_character_master_reference(db, matched_char.id, cand.id)
+                                                break
+
+                                    if m_asset and Path(m_asset.file_path).exists():
+                                        with open(m_asset.file_path, "rb") as rf:
+                                            conditioning_refs.append(rf.read())
+                                            ref_descriptions.append(f"🔒 **{matched_char.name}** Master Face (Asset `{m_asset.id[:8]}`)")
+                                    else:
+                                        missing_master_chars.append(matched_char)
+
+                            # Resolve Location Master
+                            matched_loc = None
+                            if getattr(active_scene, "location_id", None):
+                                matched_loc = LocationService.get_location(db, active_scene.location_id)
+                            if not matched_loc and locations:
+                                for loc_item in locations:
+                                    l_low = loc_item.name.lower().strip()
+                                    if (l_low in (active_scene.title or "").lower() or 
+                                        l_low in (active_scene.summary or "").lower() or 
+                                        l_low in (shot.image_prompt or "").lower() or 
+                                        l_low in (shot.action or "").lower()):
+                                        matched_loc = loc_item
+                                        break
+                                if not matched_loc:
+                                    matched_loc = locations[0]
+
+                            if matched_loc:
+                                loc_m_asset = None
+                                if matched_loc.master_reference_asset_id:
+                                    loc_m_asset = AssetService.get_asset(db, matched_loc.master_reference_asset_id)
+                                
+                                # Fallback: Look up any generated location asset
+                                if not loc_m_asset or not Path(loc_m_asset.file_path).exists():
+                                    cand_locs = db.query(Asset).filter(
+                                        Asset.project_id == project.id,
+                                        Asset.type == AssetType.LOCATION_REFERENCE.value
+                                    ).order_by(Asset.created_at.desc()).all()
+                                    for cand in cand_locs:
+                                        if is_for_location(cand, matched_loc) and Path(cand.file_path).exists():
+                                            loc_m_asset = cand
+                                            AssetService.set_location_master_reference(db, matched_loc.id, cand.id)
+                                            break
+
+                                if loc_m_asset and Path(loc_m_asset.file_path).exists():
+                                    ref_descriptions.append(f"📍 **{matched_loc.name}** Environment (Asset `{loc_m_asset.id[:8]}`)")
+
+                            # Display Conditioning Summary
                             if ref_descriptions:
-                                st.success(f"**Active Conditioning:** {', '.join(ref_descriptions)}")
+                                st.success(f"**Active Visual Anchors:**\n- " + "\n- ".join(ref_descriptions))
                             else:
                                 st.info("ℹ️ No master character face references found; generating from raw prompt.")
+
+                            if missing_master_chars:
+                                for mc in missing_master_chars:
+                                    st.warning(f"⚠️ `{mc.name}` has no locked master reference portrait yet.")
+                                    if st.button(f"✨ Quick-Generate Master Portrait for {mc.name}", key=f"qgen_m_{mc.id}", use_container_width=True):
+                                        with st.spinner(f"Generating Master Portrait for {mc.name} on {provider_choice.upper()}..."):
+                                            c_spec = CharacterSheetService.compile_prompt(mc, "MASTER_PORTRAIT")
+                                            provider = get_image_provider(provider_choice)
+                                            q_req = ImageGenerationRequest(
+                                                prompt=c_spec["prompt"],
+                                                width=c_spec["width"],
+                                                height=c_spec["height"],
+                                                num_inference_steps=28 if provider_choice == "modal" else 4,
+                                                seed=42
+                                            )
+                                            q_res = provider.generate(q_req)
+                                            q_asset = AssetService.save_image_asset(
+                                                db=db,
+                                                project_id=project.id,
+                                                asset_type=AssetType.CHARACTER_REFERENCE.value,
+                                                image_bytes=q_res.image_bytes,
+                                                prompt=c_spec["prompt"],
+                                                seed=42,
+                                                provider=provider_choice,
+                                                model="FLUX.1 [dev]" if provider_choice == "modal" else "FLUX.1 [schnell]",
+                                                parameters={
+                                                    "character_id": mc.id,
+                                                    "character_name": mc.name,
+                                                    "preset_key": "MASTER_PORTRAIT",
+                                                    "preset_name": "Master Identity Portrait"
+                                                }
+                                            )
+                                            AssetService.set_character_master_reference(db, mc.id, q_asset.id)
+                                            st.success(f"Locked {mc.name}'s master face to asset `{q_asset.id[:8]}`!")
+                                            st.rerun()
+
+                            # 2. ASPECT RATIO & PROMPT CONTROLS
+                            aspect = project.aspect_ratio or "16:9"
+                            if "9:16" in aspect:
+                                def_w, def_h = 768, 1344
+                            elif "2.39" in aspect or "21:9" in aspect:
+                                def_w, def_h = 1344, 560
+                            elif "1:1" in aspect:
+                                def_w, def_h = 1024, 1024
+                            elif "4:3" in aspect:
+                                def_w, def_h = 1152, 864
+                            else: # 16:9 standard cinematic landscape
+                                def_w, def_h = 1344, 768
 
                             kf_prompt = st.text_area(
                                 "Compiled Keyframe Image Prompt",
                                 value=shot.image_prompt or "Cinematic shot...",
-                                height=130,
+                                height=120,
                                 key=f"kf_prompt_{shot.id}"
                             )
 
-                            kf_seed = st.number_input("Seed", min_value=1, max_value=9999999, value=42 + shot.shot_number, key=f"kf_seed_{shot.id}")
+                            kc_col1, kc_col2, kc_col3 = st.columns([1.2, 1.2, 1.5])
+                            with kc_col1:
+                                kf_seed = st.number_input("Seed", min_value=1, max_value=9999999, value=42 + shot.shot_number, key=f"kf_seed_{shot.id}")
+                            with kc_col2:
+                                kf_steps = st.slider("Inference Steps", min_value=4, max_value=35, value=28 if provider_choice == "modal" else 4, key=f"kf_steps_{shot.id}")
+                            with kc_col3:
+                                st.text_input("Aspect Resolution", value=f"{def_w}x{def_h} ({aspect})", disabled=True)
 
-                            if st.button("🚀 Generate Shot Keyframe", type="primary", use_container_width=True, key=f"gen_kf_{shot.id}"):
+                            if st.button("🚀 Generate Face-Locked Keyframe", type="primary", use_container_width=True, key=f"gen_kf_{shot.id}"):
                                 with st.spinner(f"Generating Keyframe for Shot {shot.shot_number:02d} on {provider_choice.upper()}..."):
                                     provider = get_image_provider(provider_choice)
                                     req = ImageGenerationRequest(
                                         prompt=kf_prompt,
-                                        width=768,
-                                        height=1344,
-                                        num_inference_steps=28 if provider_choice == "modal" else 4,
+                                        width=def_w,
+                                        height=def_h,
+                                        num_inference_steps=kf_steps,
                                         seed=int(kf_seed),
                                         reference_images=conditioning_refs
                                     )
@@ -661,7 +805,14 @@ def render_images_page():
                                         prompt=kf_prompt,
                                         seed=int(kf_seed),
                                         provider=provider_choice,
-                                        model="FLUX.1 [dev] + IP-Adapter" if provider_choice == "modal" else "FLUX.1 [schnell]"
+                                        model="FLUX.1 [dev] + IP-Adapter" if provider_choice == "modal" else "FLUX.1 [schnell]",
+                                        parameters={
+                                            "shot_id": shot.id,
+                                            "shot_number": shot.shot_number,
+                                            "scene_id": active_scene.id,
+                                            "scene_number": active_scene.scene_number,
+                                            "conditioned_characters": [c.name for c in characters if resolve_character_match(c.name, shot.characters or [])]
+                                        }
                                     )
                                     AssetService.link_shot_keyframe(db, shot.id, saved_kf.id)
                                     st.success(f"Generated & Linked Keyframe `{saved_kf.id[:8]}` to Shot {shot.shot_number:02d}!")
@@ -680,7 +831,7 @@ def render_images_page():
                             if linked_kf and Path(linked_kf.file_path).exists():
                                 st.image(linked_kf.file_path, caption=f"Keyframe: Scene {active_scene.scene_number:02d} - Shot {shot.shot_number:02d} ({shot.status})", use_container_width=True)
                                 st.success(f"✅ Shot status: **{shot.status}**")
-                                if st.button("🗑️ Delete Shot Keyframe", key=f"del_shot_kf_{linked_kf.id}"):
+                                if st.button("🗑️ Delete Shot Keyframe", key=f"del_shot_kf_{linked_kf.id}", use_container_width=True):
                                     AssetService.delete_asset(db, linked_kf.id)
                                     st.success(f"Deleted keyframe and reset Shot {shot.shot_number:02d} to Draft.")
                                     st.rerun()
