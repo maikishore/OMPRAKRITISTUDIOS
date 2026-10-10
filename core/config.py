@@ -20,20 +20,32 @@ class Settings:
     else:
         DATABASE_URL: str = raw_db_url
 
-    LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "cloudflare")
-    LLM_API_KEY: str = os.getenv("LLM_API_KEY", "")
-    LLM_MODEL: str = os.getenv("LLM_MODEL", "@cf/google/gemma-4-26b-a4b-it")
-    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", os.getenv("LLM_API_KEY", ""))
+    def _get_val(key: str, default: str = "") -> str:
+        v = os.getenv(key)
+        if not v:
+            try:
+                import streamlit as st
+                if hasattr(st, "secrets") and key in st.secrets:
+                    v = str(st.secrets[key])
+            except Exception:
+                pass
+        return v or default
 
-    CLOUDFLARE_ACCOUNT_ID: str = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
-    CLOUDFLARE_AUTH_TOKEN: str = os.getenv("CLOUDFLARE_AUTH_TOKEN", "")
+    LLM_PROVIDER: str = _get_val("LLM_PROVIDER", "cloudflare")
+    LLM_API_KEY: str = _get_val("LLM_API_KEY", "")
+    LLM_MODEL: str = _get_val("LLM_MODEL", "@cf/google/gemma-4-26b-a4b-it")
+    GEMINI_API_KEY: str = _get_val("GEMINI_API_KEY", _get_val("LLM_API_KEY", ""))
 
-    MODAL_APP_NAME: str = os.getenv("MODAL_APP_NAME", "microdrama-studio-workers")
-    MODAL_ENVIRONMENT: str = os.getenv("MODAL_ENVIRONMENT", "main")
+    CLOUDFLARE_ACCOUNT_ID: str = _get_val("CLOUDFLARE_ACCOUNT_ID", "")
+    CLOUDFLARE_AUTH_TOKEN: str = _get_val("CLOUDFLARE_AUTH_TOKEN", "")
 
-    DEFAULT_FPS: int = int(os.getenv("DEFAULT_FPS", "24"))
-    DEFAULT_RESOLUTION: str = os.getenv("DEFAULT_RESOLUTION", "1080p")
-    DEFAULT_ASPECT_RATIO: str = os.getenv("DEFAULT_ASPECT_RATIO", "16:9")
+    MODAL_APP_NAME: str = _get_val("MODAL_APP_NAME", "microdrama-studio-workers")
+    MODAL_ENVIRONMENT: str = _get_val("MODAL_ENVIRONMENT", "main")
+    STUDIO_PASSWORD: str = _get_val("STUDIO_PASSWORD", "")
+
+    DEFAULT_FPS: int = int(_get_val("DEFAULT_FPS", "24"))
+    DEFAULT_RESOLUTION: str = _get_val("DEFAULT_RESOLUTION", "1080p")
+    DEFAULT_ASPECT_RATIO: str = _get_val("DEFAULT_ASPECT_RATIO", "16:9")
 
     @classmethod
     def ensure_directories(cls):

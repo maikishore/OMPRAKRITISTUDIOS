@@ -9,6 +9,7 @@ if str(ROOT_DIR) not in sys.path:
 import streamlit as st
 from core.database import init_db, ScopedSession
 from core.project_service import ProjectService
+from core.auth_gate import require_auth
 from schemas.project import ProjectCreate
 import core.enums as enums
 
@@ -19,6 +20,10 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# Password Protection Gate (if STUDIO_PASSWORD configured)
+if not require_auth():
+    st.stop()
 
 # Initialize DB tables on startup
 init_db()
