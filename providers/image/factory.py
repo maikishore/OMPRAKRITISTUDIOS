@@ -19,3 +19,10 @@ def get_image_provider(provider_name: Optional[str] = "modal") -> ImageProvider:
     else:
         # Default to Modal GPU provider
         return ModalImageProvider()
+
+class ImageProviderFactory:
+    """Factory wrapper for getting image providers."""
+    @staticmethod
+    def get_provider(provider_name: Optional[str] = "modal") -> ImageProvider:
+        return get_image_provider(provider_name)
+
