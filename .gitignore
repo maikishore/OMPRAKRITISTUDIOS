@@ -12,6 +12,9 @@ __pycache__/
 # Environment & Secrets
 .env
 .env.local
+.env.*
+.streamlit/secrets.toml
+secrets.toml
 *.pem
 *.key
 
