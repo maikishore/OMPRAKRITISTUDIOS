@@ -44,13 +44,17 @@ try:
     except Exception:
         pass
 
+    # Inactivity shutdown window (in seconds)
+    # Automatically terminates GPU instance if no requests arrive within this window.
+    INACTIVITY_TIMEOUT_SECONDS = int(os.getenv("MODAL_SCALEDOWN_WINDOW", "900"))  # Default: 15 minutes (900s)
+
     @app.cls(
         image=image_env,
         gpu="L4",
         volumes={"/cache": model_volume},
         secrets=secrets,
         timeout=600,
-        scaledown_window=600  # Keep warm for 10 minutes (600 seconds) after each request
+        scaledown_window=INACTIVITY_TIMEOUT_SECONDS  # Keep warm for 15 minutes (900s) by default
     )
     class FluxImageGenerator:
         """Modal GPU Class running FLUX pipeline on L4 GPU with persistent caching & 10min warm window."""

@@ -35,12 +35,14 @@ try:
         })
     )
 
+    INACTIVITY_TIMEOUT_SECONDS = int(os.getenv("MODAL_SCALEDOWN_WINDOW", "900"))  # Default: 15 minutes (900s)
+
     @app.cls(
         image=image_env,
         gpu="L4",
         volumes={"/cache": audio_volume},
         timeout=300,
-        scaledown_window=600  # 10 minutes warm keep-alive
+        scaledown_window=INACTIVITY_TIMEOUT_SECONDS  # Auto-shuts down GPU if inactive for 15 mins
     )
     class QwenAudioWorker:
         """Serverless Qwen3-TTS 1.7B Worker for emotional character dialogue."""

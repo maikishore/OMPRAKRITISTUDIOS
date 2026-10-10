@@ -1,3 +1,4 @@
+import os
 import json
 import subprocess
 import sys
@@ -84,8 +85,13 @@ class ModalService:
         return False, None
 
     @classmethod
-    def deploy_worker(cls, worker_file: str, root_dir: Optional[Path] = None) -> Tuple[bool, str]:
-        """Deploys a Modal worker script."""
+    def deploy_worker(
+        cls,
+        worker_file: str,
+        root_dir: Optional[Path] = None,
+        inactivity_timeout_minutes: int = 15
+    ) -> Tuple[bool, str]:
+        """Deploys a Modal worker script with configured inactivity auto-shutdown timer."""
         cli = cls.get_modal_cli_path()
         cwd = str(root_dir) if root_dir else None
         
@@ -99,10 +105,18 @@ class ModalService:
         if not full_p.exists():
             return False, f"Worker file not found: {full_p}"
 
+        # Convert minutes to seconds for scaledown_window
+        scaledown_seconds = max(60, inactivity_timeout_minutes * 60)
+        env = os.environ.copy() if "os" in globals() else {}
+        import os
+        env = os.environ.copy()
+        env["MODAL_SCALEDOWN_WINDOW"] = str(scaledown_seconds)
+
         try:
             res = subprocess.run(
                 [cli, "deploy", worker_file],
                 cwd=cwd,
+                env=env,
                 capture_output=True,
                 text=True,
                 timeout=180

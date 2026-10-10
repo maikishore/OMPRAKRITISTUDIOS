@@ -82,15 +82,30 @@ with tab_modal:
                 else:
                     st.info("⚪ **STOPPED / NOT DEPLOYED**")
 
+            # Inactivity Timeout Setting
+            set_c1, set_c2 = st.columns([1, 2])
+            with set_c1:
+                idle_timeout_m = st.selectbox(
+                    "⏳ Auto-Shutdown Idle Window",
+                    options=[5, 10, 15, 30, 60],
+                    index=2,
+                    key=f"idle_to_{m_id}",
+                    help="Modal automatically shuts down the GPU worker if no generation requests are received within this time window."
+                )
+
             btn_col1, btn_col2, btn_col3 = st.columns(3)
             
             with btn_col1:
                 deploy_btn_label = "🚀 Redeploy Model" if is_dep else "🚀 Deploy to Modal GPU"
                 if st.button(deploy_btn_label, key=f"dep_btn_{m_id}", use_container_width=True, type="primary" if not is_dep else "secondary"):
-                    with st.spinner(f"Deploying {model_info['name']} ({worker_file}) to Modal..."):
-                        success, out = ModalService.deploy_worker(worker_file, root_dir=ROOT_DIR)
+                    with st.spinner(f"Deploying {model_info['name']} ({worker_file}) with {idle_timeout_m}m auto-shutdown window..."):
+                        success, out = ModalService.deploy_worker(
+                            worker_file,
+                            root_dir=ROOT_DIR,
+                            inactivity_timeout_minutes=idle_timeout_m
+                        )
                         if success:
-                            st.success(f"Successfully deployed `{app_name}`!")
+                            st.success(f"Successfully deployed `{app_name}` (Auto-shutdown: {idle_timeout_m}m)!")
                             with st.expander("📄 Deployment Output Logs", expanded=True):
                                 st.code(out)
                             st.rerun()
