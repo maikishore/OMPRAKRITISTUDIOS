@@ -107,8 +107,6 @@ class ModalService:
 
         # Convert minutes to seconds for scaledown_window
         scaledown_seconds = max(60, inactivity_timeout_minutes * 60)
-        env = os.environ.copy() if "os" in globals() else {}
-        import os
         env = os.environ.copy()
         env["MODAL_SCALEDOWN_WINDOW"] = str(scaledown_seconds)
 
