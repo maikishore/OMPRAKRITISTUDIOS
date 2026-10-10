@@ -4,6 +4,7 @@ Based on proven high-performance FLUX setup in OHM (flux_klein_modal.py).
 Deploy with: `modal deploy modal/image_worker.py`
 """
 
+import os
 import io
 from typing import Optional
 

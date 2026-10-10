@@ -7,6 +7,7 @@ Supports:
 Deploy with: `modal deploy modal/audio_worker.py`
 """
 
+import os
 import io
 from typing import Optional
 
