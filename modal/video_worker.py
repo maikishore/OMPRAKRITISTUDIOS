@@ -201,136 +201,176 @@ try:
             generator = torch.Generator(device="cuda" if torch.cuda.is_available() else "cpu").manual_seed(seed)
 
             # Check if any pipeline is loaded
-            if self.t2v_pipe or self.i2v_pipe:
-                try:
-                    if self.is_ltx25:
-                        # ---------------------------------------------------------
-                        # LTX-2.5 Multimodal Joint Video + Synchronized Audio Flow
-                        # ---------------------------------------------------------
-                        pipe_to_use = self.i2v_pipe if (has_image and self.i2v_pipe) else self.t2v_pipe
-                        call_kwargs = {
-                            "prompt": prompt,
-                            "negative_prompt": negative_prompt,
-                            "width": width,
-                            "height": height,
-                            "num_frames": num_frames,
-                            "frame_rate": float(fps),
-                            "generator": generator,
-                            "output_type": "np"
-                        }
-                        if has_image and self.i2v_pipe:
-                            init_img = Image.open(io.BytesIO(image_bytes)).convert("RGB").resize((width, height))
-                            call_kwargs["image"] = init_img
+            if not (self.t2v_pipe or self.i2v_pipe):
+                raise RuntimeError("No video diffusion pipeline is loaded in the worker container.")
 
-                        output = pipe_to_use(**call_kwargs)
-                        video_frames = output[0] if isinstance(output, tuple) else getattr(output, "frames", [None])[0]
-                        audio_latents = output[1] if isinstance(output, tuple) and len(output) > 1 else None
+            try:
+                if self.is_ltx25:
+                    # ---------------------------------------------------------
+                    # LTX-2.5 Multimodal Joint Video + Synchronized Audio Flow
+                    # ---------------------------------------------------------
+                    pipe_to_use = self.i2v_pipe if (has_image and self.i2v_pipe) else self.t2v_pipe
+                    call_kwargs = {
+                        "prompt": prompt,
+                        "negative_prompt": negative_prompt,
+                        "width": width,
+                        "height": height,
+                        "num_frames": num_frames,
+                        "frame_rate": float(fps),
+                        "generator": generator,
+                        "output_type": "np"
+                    }
+                    if has_image and self.i2v_pipe:
+                        init_img = Image.open(io.BytesIO(image_bytes)).convert("RGB").resize((width, height))
+                        call_kwargs["image"] = init_img
 
-                        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
-                            tmp_path = tmp.name
+                    output = pipe_to_use(**call_kwargs)
+                    video_frames = output[0] if isinstance(output, tuple) else getattr(output, "frames", [None])[0]
+                    audio_latents = output[1] if isinstance(output, tuple) and len(output) > 1 else None
 
-                        try:
-                            from diffusers.utils import encode_video
-                            sample_rate = getattr(getattr(pipe_to_use, "vocoder", None), "config", None)
-                            sr = getattr(sample_rate, "output_sampling_rate", 24000) if sample_rate else 24000
-                            encode_video(
-                                video_frames[0] if len(video_frames.shape) == 4 else video_frames,
-                                fps=float(fps),
-                                audio=audio_latents[0].float().cpu() if audio_latents is not None else None,
-                                audio_sample_rate=sr,
-                                output_path=tmp_path
-                            )
-                        except Exception as e_enc:
-                            print(f"encode_video fallback ({e_enc}), using imageio...")
-                            imageio.mimsave(tmp_path, [np.array(f) for f in video_frames], fps=fps, format="mp4")
+                    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
+                        tmp_path = tmp.name
 
-                        with open(tmp_path, "rb") as f:
-                            video_data = f.read()
-                        os.remove(tmp_path)
-                        return video_data
-
-                        # ---------------------------------------------------------
-                        # LTX-Video 0.9.x High-Motion Pipeline Flow
-                        # ---------------------------------------------------------
-                        clean_neg = (
-                            negative_prompt.strip()
-                            if (negative_prompt and negative_prompt.strip())
-                            else "worst quality, blurry, distorted, jitter, low quality, artifacts, watermark, glitchy, cartoon, illustration, oversaturated, color banding, green tint, neon clipping"
+                    try:
+                        from diffusers.utils import encode_video
+                        sample_rate = getattr(getattr(pipe_to_use, "vocoder", None), "config", None)
+                        sr = getattr(sample_rate, "output_sampling_rate", 24000) if sample_rate else 24000
+                        encode_video(
+                            video_frames[0] if len(video_frames.shape) == 4 else video_frames,
+                            fps=float(fps),
+                            audio=audio_latents[0].float().cpu() if audio_latents is not None else None,
+                            audio_sample_rate=sr,
+                            output_path=tmp_path
                         )
+                    except Exception as e_enc:
+                        print(f"encode_video fallback ({e_enc}), using imageio...")
+                        imageio.mimsave(tmp_path, [np.array(f) for f in video_frames], fps=fps, format="mp4")
 
-                        pipe_kwargs = {
-                            "prompt": prompt,
-                            "negative_prompt": clean_neg,
-                            "width": width,
-                            "height": height,
-                            "num_frames": num_frames,
-                            "num_inference_steps": num_inference_steps,
-                            "guidance_scale": guidance_scale,
-                            "generator": generator
-                        }
-                        if guidance_scale > 3.0:
-                            pipe_kwargs["guidance_rescale"] = 0.7
+                    with open(tmp_path, "rb") as f:
+                        video_data = f.read()
+                    os.remove(tmp_path)
+                    return video_data
 
-                        if has_image:
-                            # IMAGE-TO-VIDEO
-                            init_img = Image.open(io.BytesIO(image_bytes)).convert("RGB").resize((width, height))
-                            
-                            # Ensure we have an i2v pipeline
-                            if self.i2v_pipe is None and self.t2v_pipe is not None:
-                                try:
-                                    from diffusers import LTXImageToVideoPipeline
-                                    self.i2v_pipe = LTXImageToVideoPipeline.from_pipe(self.t2v_pipe)
-                                    self.i2v_pipe.enable_model_cpu_offload()
-                                except Exception as e_ipipe:
-                                    print(f"Could not convert t2v to i2v: {e_ipipe}")
+                else:
+                    # ---------------------------------------------------------
+                    # LTX-Video 0.9.x High-Motion Pipeline Flow
+                    # ---------------------------------------------------------
+                    clean_neg = (
+                        negative_prompt.strip()
+                        if (negative_prompt and negative_prompt.strip())
+                        else "worst quality, blurry, distorted, jitter, low quality, artifacts, watermark, glitchy, cartoon, illustration, oversaturated, color banding, green tint, neon clipping"
+                    )
 
-                            if self.i2v_pipe is not None:
-                                output = self.i2v_pipe(image=init_img, **pipe_kwargs)
-                                video_frames = output.frames[0]
-                            else:
-                                raise RuntimeError("Image-to-Video pipeline not available.")
+                    pipe_kwargs = {
+                        "prompt": prompt,
+                        "negative_prompt": clean_neg,
+                        "width": width,
+                        "height": height,
+                        "num_frames": num_frames,
+                        "num_inference_steps": num_inference_steps,
+                        "guidance_scale": guidance_scale,
+                        "generator": generator
+                    }
+                    if guidance_scale > 3.0:
+                        pipe_kwargs["guidance_rescale"] = 0.7
 
+                    if has_image:
+                        # IMAGE-TO-VIDEO
+                        init_img = Image.open(io.BytesIO(image_bytes)).convert("RGB").resize((width, height))
+                        
+                        # Ensure we have an i2v pipeline
+                        if self.i2v_pipe is None and self.t2v_pipe is not None:
+                            try:
+                                from diffusers import LTXImageToVideoPipeline
+                                self.i2v_pipe = LTXImageToVideoPipeline.from_pipe(self.t2v_pipe)
+                                self.i2v_pipe.enable_model_cpu_offload()
+                            except Exception as e_ipipe:
+                                print(f"Could not convert t2v to i2v: {e_ipipe}")
+
+                        if self.i2v_pipe is not None:
+                            output = self.i2v_pipe(image=init_img, **pipe_kwargs)
+                            video_frames = output.frames[0]
                         else:
-                            # TEXT-TO-VIDEO (Pure text prompt, no conditioning image)
-                            if self.t2v_pipe is not None:
+                            raise RuntimeError("Image-to-Video pipeline not available.")
+
+                    else:
+                        # TEXT-TO-VIDEO (Pure text prompt, no conditioning image)
+                        if self.t2v_pipe is not None:
+                            output = self.t2v_pipe(**pipe_kwargs)
+                            video_frames = output.frames[0]
+                        elif self.i2v_pipe is not None:
+                            # Fallback: if only i2v_pipe exists, try converting to t2v_pipe first
+                            try:
+                                from diffusers import LTXPipeline
+                                self.t2v_pipe = LTXPipeline.from_pipe(self.i2v_pipe)
+                                self.t2v_pipe.enable_model_cpu_offload()
                                 output = self.t2v_pipe(**pipe_kwargs)
                                 video_frames = output.frames[0]
-                            elif self.i2v_pipe is not None:
-                                # Fallback: if only i2v_pipe exists, try converting to t2v_pipe first
-                                try:
-                                    from diffusers import LTXPipeline
-                                    self.t2v_pipe = LTXPipeline.from_pipe(self.i2v_pipe)
-                                    self.t2v_pipe.enable_model_cpu_offload()
-                                    output = self.t2v_pipe(**pipe_kwargs)
-                                    video_frames = output.frames[0]
-                                except Exception as e_conv:
-                                    print(f"t2v conversion failed ({e_conv}), synthesizing neutral initial frame for i2v...")
-                                    blank_canvas = Image.new("RGB", (width, height), color=(30, 30, 35))
-                                    output = self.i2v_pipe(image=blank_canvas, **pipe_kwargs)
-                                    video_frames = output.frames[0]
-                            else:
-                                raise RuntimeError("No video pipeline available.")
+                            except Exception as e_conv:
+                                print(f"t2v conversion failed ({e_conv}), synthesizing neutral initial frame for i2v...")
+                                blank_canvas = Image.new("RGB", (width, height), color=(30, 30, 35))
+                                output = self.i2v_pipe(image=blank_canvas, **pipe_kwargs)
+                                video_frames = output.frames[0]
+                        else:
+                            raise RuntimeError("No video pipeline available.")
 
-                        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
-                            tmp_path = tmp.name
+                    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
+                        tmp_path = tmp.name
 
-                        try:
-                            from diffusers.utils import export_to_video
-                            export_to_video(video_frames, output_video_path=tmp_path, fps=fps)
-                        except Exception as e_exp:
-                            print(f"diffusers export_to_video fallback ({e_exp}), using imageio...")
-                            imageio.mimsave(tmp_path, [np.array(f) for f in video_frames], fps=fps, format="mp4")
+                    try:
+                        from diffusers.utils import export_to_video
+                        export_to_video(video_frames, output_video_path=tmp_path, fps=fps)
+                    except Exception as e_exp:
+                        print(f"diffusers export_to_video fallback ({e_exp}), using imageio...")
+                        imageio.mimsave(tmp_path, [np.array(f) for f in video_frames], fps=fps, format="mp4")
 
-                        with open(tmp_path, "rb") as f:
-                            video_data = f.read()
-                        os.remove(tmp_path)
-                        return video_data
+                    # Multiplex ambient audio track so the video has synchronized atmospheric sound
+                    try:
+                        import soundfile as sf
+                        import subprocess
+                        sr = 44100
+                        duration_s = max(0.5, len(video_frames) / float(fps))
+                        t_arr = np.linspace(0, duration_s, int(sr * duration_s), endpoint=False)
+                        ambient_wave = (
+                            0.06 * np.sin(2 * np.pi * 108 * t_arr) +
+                            0.04 * np.sin(2 * np.pi * 162 * t_arr) +
+                            0.02 * np.sin(2 * np.pi * 216 * t_arr) +
+                            0.012 * np.random.normal(0, 0.02, len(t_arr))
+                        )
+                        fade_pts = min(int(sr * 0.35), len(ambient_wave) // 4)
+                        if fade_pts > 0:
+                            ambient_wave[:fade_pts] *= np.linspace(0, 1, fade_pts)
+                            ambient_wave[-fade_pts:] *= np.linspace(1, 0, fade_pts)
 
-                except Exception as e_gen:
-                    print(f"Pipeline generation error: {e_gen}. Using procedural video fallback.")
+                        wav_tmp = tmp_path.replace(".mp4", "_ambient.wav")
+                        mux_tmp = tmp_path.replace(".mp4", "_mux.mp4")
+                        sf.write(wav_tmp, ambient_wave.astype(np.float32), sr)
 
-            # Procedural fallback generator (produces valid MP4 for preview/testing)
-            return self._generate_fallback_video(prompt, image_bytes, width, height, num_frames, fps)
+                        cmd = [
+                            "ffmpeg", "-y", "-i", tmp_path, "-i", wav_tmp,
+                            "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+                            "-shortest", mux_tmp
+                        ]
+                        proc = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        if proc.returncode == 0 and os.path.exists(mux_tmp) and os.path.getsize(mux_tmp) > 0:
+                            os.replace(mux_tmp, tmp_path)
+                        if os.path.exists(wav_tmp):
+                            os.remove(wav_tmp)
+                        if os.path.exists(mux_tmp):
+                            os.remove(mux_tmp)
+                    except Exception as e_audio_mux:
+                        print(f"Ambient audio mux note: {e_audio_mux}")
+
+                    with open(tmp_path, "rb") as f:
+                        video_data = f.read()
+                    os.remove(tmp_path)
+                    return video_data
+
+            except Exception as e_gen:
+                import traceback
+                traceback.print_exc()
+                print(f"❌ Video generation error on GPU: {e_gen}")
+                raise RuntimeError(f"Video generation error on GPU: {e_gen}")
 
         def _generate_fallback_video(
             self,

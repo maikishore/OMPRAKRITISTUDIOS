@@ -307,7 +307,12 @@ with tab_t2v:
                     st.session_state["t2v_video_latency"] = dt
                     st.session_state["t2v_res_w"] = t2v_w
                     st.session_state["t2v_res_h"] = t2v_h
-                    st.success(f"✅ Text-to-Video rendered in {dt}s ({v_res.duration}s clip)!")
+                    st.session_state["t2v_video_params"] = v_res.parameters
+
+                    if v_res.parameters.get("fallback_reason"):
+                        st.warning(f"⚠️ Worker notification: {v_res.parameters['fallback_reason']}")
+                    else:
+                        st.success(f"✅ Text-to-Video rendered in {dt}s ({v_res.duration}s clip)!")
                 except Exception as e:
                     st.error(f"Generation error: {e}")
 
