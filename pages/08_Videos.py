@@ -150,8 +150,8 @@ with tab_t2v:
         with c_t2v_dur:
             t2v_frames = st.select_slider(
                 "Frames / Duration",
-                options=[48, 72, 97, 121],
-                value=72,
+                options=[25, 49, 73, 97, 121],
+                value=73,
                 format_func=lambda x: f"{x} frames (~{round(x/24, 1)}s)",
                 key="t2v_frames_sel"
             )
@@ -304,8 +304,8 @@ with tab_i2v:
         with c_mot:
             num_frames = st.select_slider(
                 "Duration / Frames",
-                options=[24, 48, 72, 97],
-                value=48,
+                options=[25, 49, 73, 97, 121],
+                value=49,
                 format_func=lambda x: f"{x} frames (~{round(x/24, 1)}s)"
             )
 

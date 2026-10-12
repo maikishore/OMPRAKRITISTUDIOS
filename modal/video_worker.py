@@ -44,7 +44,8 @@ try:
             "pillow",
             "imageio[ffmpeg]",
             "soundfile",
-            "hf_transfer"
+            "hf_transfer",
+            "opencv-python-headless"
         )
         .env({
             "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
@@ -75,56 +76,94 @@ try:
             import torch
 
             print(f"🔥 Initializing Video Generation Engine on Modal GPU ({TARGET_GPU})...")
-            self.pipe = None
+            self.t2v_pipe = None
+            self.i2v_pipe = None
             self.is_ltx25 = False
 
-            # Primary Attempt: Load Lightricks LTX-2.5 Multimodal (Joint Video + Audio)
+            # Primary Attempt: Lightricks LTX-2.5 Multimodal Foundation (Joint Video + Audio)
             try:
                 from diffusers import LTX2Pipeline, LTX2ImageToVideoPipeline
                 print("Loading Lightricks/LTX-2.5-Diffusers (Joint Video + Audio)...")
-                self.pipe = LTX2Pipeline.from_pretrained(
+                self.t2v_pipe = LTX2Pipeline.from_pretrained(
                     "Lightricks/LTX-2.5-Diffusers",
                     torch_dtype=torch.bfloat16
                 )
-                self.pipe.enable_model_cpu_offload()
-                if hasattr(self.pipe, "vae"):
-                    self.pipe.vae.enable_tiling()
+                self.t2v_pipe.enable_model_cpu_offload()
+                if hasattr(self.t2v_pipe, "vae"):
+                    self.t2v_pipe.vae.enable_tiling()
+                try:
+                    self.i2v_pipe = LTX2ImageToVideoPipeline.from_pipe(self.t2v_pipe)
+                    self.i2v_pipe.enable_model_cpu_offload()
+                except Exception as e_i2v25:
+                    print(f"LTX2ImageToVideoPipeline from_pipe note: {e_i2v25}")
+                    self.i2v_pipe = None
                 self.is_ltx25 = True
                 print("✅ Lightricks LTX-2.5 loaded successfully with synchronized audio!")
                 return
             except Exception as e_ltx25:
-                print(f"LTX-2.5 load note ({e_ltx25}), falling back to LTX-Video...")
+                print(f"LTX-2.5 load note ({e_ltx25}), proceeding to Lightricks LTX-Video...")
 
-            # Fallback Attempt: Load Lightricks LTX-Video 0.9.x
+            # Fallback Attempt 1: Lightricks LTX-Video Text-to-Video Pipeline
             try:
-                from diffusers import LTXImageToVideoPipeline
-                print("Loading Lightricks/LTX-Video Image-to-Video pipeline...")
-                self.pipe = LTXImageToVideoPipeline.from_pretrained(
+                from diffusers import LTXPipeline, LTXImageToVideoPipeline
+                print("Loading Lightricks/LTX-Video Text-to-Video pipeline...")
+                self.t2v_pipe = LTXPipeline.from_pretrained(
                     "Lightricks/LTX-Video",
                     torch_dtype=torch.bfloat16
                 )
-                self.pipe.enable_model_cpu_offload()
-                if hasattr(self.pipe, "vae"):
-                    self.pipe.vae.enable_tiling()
+                self.t2v_pipe.enable_model_cpu_offload()
+                if hasattr(self.t2v_pipe, "vae"):
+                    self.t2v_pipe.vae.enable_tiling()
+
+                print("Creating LTXImageToVideoPipeline from existing Text-to-Video weights...")
+                try:
+                    self.i2v_pipe = LTXImageToVideoPipeline.from_pipe(self.t2v_pipe)
+                    self.i2v_pipe.enable_model_cpu_offload()
+                except Exception as e_i2v:
+                    print(f"LTXImageToVideoPipeline from_pipe note: {e_i2v}")
+                    self.i2v_pipe = None
+
                 self.is_ltx25 = False
-                print("✅ LTX-Video Image-to-Video pipeline loaded successfully!")
+                print("✅ Lightricks LTX-Video pipelines (T2V and I2V) initialized successfully!")
                 return
             except Exception as e_ltx:
-                print(f"LTX-Video fallback load note: {e_ltx}")
+                print(f"LTX-Video Text-to-Video load note: {e_ltx}")
 
-            # Generic fallback
+            # Fallback Attempt 2: Direct LTXImageToVideoPipeline
             try:
-                from diffusers import AutopipelineForImageToVideo
-                self.pipe = AutopipelineForImageToVideo.from_pretrained(
+                from diffusers import LTXImageToVideoPipeline, LTXPipeline
+                print("Loading LTXImageToVideoPipeline directly...")
+                self.i2v_pipe = LTXImageToVideoPipeline.from_pretrained(
                     "Lightricks/LTX-Video",
                     torch_dtype=torch.bfloat16
                 )
-                self.pipe.enable_model_cpu_offload()
+                self.i2v_pipe.enable_model_cpu_offload()
+                if hasattr(self.i2v_pipe, "vae"):
+                    self.i2v_pipe.vae.enable_tiling()
+                try:
+                    self.t2v_pipe = LTXPipeline.from_pipe(self.i2v_pipe)
+                    self.t2v_pipe.enable_model_cpu_offload()
+                except Exception as e_t2v_conv:
+                    print(f"Could not convert to LTXPipeline: {e_t2v_conv}")
                 self.is_ltx25 = False
-                print("✅ Auto Image-to-Video pipeline loaded!")
-            except Exception as e2:
-                print(f"⚠️ Video model load note: {e2}")
-                self.pipe = None
+                print("✅ LTXImageToVideoPipeline loaded successfully!")
+                return
+            except Exception as e_i2v_dir:
+                print(f"LTXImageToVideoPipeline direct load note: {e_i2v_dir}")
+
+            # Fallback Attempt 3: AutoPipeline
+            try:
+                from diffusers import AutoPipelineForText2Video
+                print("Loading AutoPipelineForText2Video...")
+                self.t2v_pipe = AutoPipelineForText2Video.from_pretrained(
+                    "Lightricks/LTX-Video",
+                    torch_dtype=torch.bfloat16
+                )
+                self.t2v_pipe.enable_model_cpu_offload()
+                self.is_ltx25 = False
+                print("✅ AutoPipelineForText2Video loaded successfully!")
+            except Exception as e_auto:
+                print(f"⚠️ AutoPipeline load note: {e_auto}")
 
         @modal.method()
         def generate_video(
@@ -146,27 +185,42 @@ try:
             import numpy as np
             from PIL import Image
 
-            print(f"🎬 Video generation triggered: prompt='{prompt[:80]}...', frames={num_frames}, fps={fps}, LTX-2.5={self.is_ltx25}")
+            # 1. Enforce strict divisibility constraints for LTX architecture
+            # Width and height MUST be multiples of 32
+            width = (max(256, int(width)) // 32) * 32
+            height = (max(256, int(height)) // 32) * 32
+
+            # Number of frames MUST follow 8k + 1 rule
+            k = max(1, round((int(num_frames) - 1) / 8))
+            num_frames = k * 8 + 1
+
+            has_image = bool(image_bytes and len(image_bytes) > 0)
+            print(f"🎬 Video generation triggered: prompt='{prompt[:80]}...', has_image={has_image}, frames={num_frames}, fps={fps}, LTX-2.5={self.is_ltx25}")
             generator = torch.Generator(device="cuda" if torch.cuda.is_available() else "cpu").manual_seed(seed)
 
-            # Ensure dimensions are divisible by 32
-            width = (width // 32) * 32
-            height = (height // 32) * 32
-
-            if self.pipe:
+            # Check if any pipeline is loaded
+            if self.t2v_pipe or self.i2v_pipe:
                 try:
                     if self.is_ltx25:
-                        # LTX-2.5 Multimodal Joint Video + Audio Generation
-                        output = self.pipe(
-                            prompt=prompt,
-                            negative_prompt=negative_prompt,
-                            width=width,
-                            height=height,
-                            num_frames=num_frames,
-                            frame_rate=float(fps),
-                            generator=generator,
-                            output_type="np"
-                        )
+                        # ---------------------------------------------------------
+                        # LTX-2.5 Multimodal Joint Video + Synchronized Audio Flow
+                        # ---------------------------------------------------------
+                        pipe_to_use = self.i2v_pipe if (has_image and self.i2v_pipe) else self.t2v_pipe
+                        call_kwargs = {
+                            "prompt": prompt,
+                            "negative_prompt": negative_prompt,
+                            "width": width,
+                            "height": height,
+                            "num_frames": num_frames,
+                            "frame_rate": float(fps),
+                            "generator": generator,
+                            "output_type": "np"
+                        }
+                        if has_image and self.i2v_pipe:
+                            init_img = Image.open(io.BytesIO(image_bytes)).convert("RGB").resize((width, height))
+                            call_kwargs["image"] = init_img
+
+                        output = pipe_to_use(**call_kwargs)
                         video_frames = output[0] if isinstance(output, tuple) else getattr(output, "frames", [None])[0]
                         audio_latents = output[1] if isinstance(output, tuple) and len(output) > 1 else None
 
@@ -175,7 +229,7 @@ try:
 
                         try:
                             from diffusers.utils import encode_video
-                            sample_rate = getattr(getattr(self.pipe, "vocoder", None), "config", None)
+                            sample_rate = getattr(getattr(pipe_to_use, "vocoder", None), "config", None)
                             sr = getattr(sample_rate, "output_sampling_rate", 24000) if sample_rate else 24000
                             encode_video(
                                 video_frames[0] if len(video_frames.shape) == 4 else video_frames,
@@ -185,7 +239,7 @@ try:
                                 output_path=tmp_path
                             )
                         except Exception as e_enc:
-                            print(f"encode_video fallback to imageio: {e_enc}")
+                            print(f"encode_video fallback ({e_enc}), using imageio...")
                             imageio.mimsave(tmp_path, [np.array(f) for f in video_frames], fps=fps, format="mp4")
 
                         with open(tmp_path, "rb") as f:
@@ -194,36 +248,97 @@ try:
                         return video_data
 
                     else:
-                        # LTX-Video Image-to-Video / Text-to-Video
-                        if image_bytes:
+                        # ---------------------------------------------------------
+                        # LTX-Video 0.9.x High-Motion Pipeline Flow
+                        # ---------------------------------------------------------
+                        if has_image:
+                            # IMAGE-TO-VIDEO
                             init_img = Image.open(io.BytesIO(image_bytes)).convert("RGB").resize((width, height))
-                            video_frames = self.pipe(
-                                image=init_img,
-                                prompt=prompt,
-                                negative_prompt=negative_prompt,
-                                width=width,
-                                height=height,
-                                num_frames=num_frames,
-                                num_inference_steps=num_inference_steps,
-                                guidance_scale=guidance_scale,
-                                generator=generator
-                            ).frames[0]
+                            
+                            # Ensure we have an i2v pipeline
+                            if self.i2v_pipe is None and self.t2v_pipe is not None:
+                                try:
+                                    from diffusers import LTXImageToVideoPipeline
+                                    self.i2v_pipe = LTXImageToVideoPipeline.from_pipe(self.t2v_pipe)
+                                    self.i2v_pipe.enable_model_cpu_offload()
+                                except Exception as e_ipipe:
+                                    print(f"Could not convert t2v to i2v: {e_ipipe}")
+
+                            if self.i2v_pipe is not None:
+                                output = self.i2v_pipe(
+                                    image=init_img,
+                                    prompt=prompt,
+                                    negative_prompt=negative_prompt,
+                                    width=width,
+                                    height=height,
+                                    num_frames=num_frames,
+                                    num_inference_steps=num_inference_steps,
+                                    guidance_scale=guidance_scale,
+                                    generator=generator
+                                )
+                                video_frames = output.frames[0]
+                            else:
+                                raise RuntimeError("Image-to-Video pipeline not available.")
+
                         else:
-                            video_frames = self.pipe(
-                                prompt=prompt,
-                                negative_prompt=negative_prompt,
-                                width=width,
-                                height=height,
-                                num_frames=num_frames,
-                                num_inference_steps=num_inference_steps,
-                                guidance_scale=guidance_scale,
-                                generator=generator
-                            ).frames[0]
+                            # TEXT-TO-VIDEO (Pure text prompt, no conditioning image)
+                            if self.t2v_pipe is not None:
+                                output = self.t2v_pipe(
+                                    prompt=prompt,
+                                    negative_prompt=negative_prompt,
+                                    width=width,
+                                    height=height,
+                                    num_frames=num_frames,
+                                    num_inference_steps=num_inference_steps,
+                                    guidance_scale=guidance_scale,
+                                    generator=generator
+                                )
+                                video_frames = output.frames[0]
+                            elif self.i2v_pipe is not None:
+                                # Fallback: if only i2v_pipe exists, try converting to t2v_pipe first
+                                try:
+                                    from diffusers import LTXPipeline
+                                    self.t2v_pipe = LTXPipeline.from_pipe(self.i2v_pipe)
+                                    self.t2v_pipe.enable_model_cpu_offload()
+                                    output = self.t2v_pipe(
+                                        prompt=prompt,
+                                        negative_prompt=negative_prompt,
+                                        width=width,
+                                        height=height,
+                                        num_frames=num_frames,
+                                        num_inference_steps=num_inference_steps,
+                                        guidance_scale=guidance_scale,
+                                        generator=generator
+                                    )
+                                    video_frames = output.frames[0]
+                                except Exception as e_conv:
+                                    print(f"t2v conversion failed ({e_conv}), synthesizing neutral initial frame for i2v...")
+                                    blank_canvas = Image.new("RGB", (width, height), color=(30, 30, 35))
+                                    output = self.i2v_pipe(
+                                        image=blank_canvas,
+                                        prompt=prompt,
+                                        negative_prompt=negative_prompt,
+                                        width=width,
+                                        height=height,
+                                        num_frames=num_frames,
+                                        num_inference_steps=num_inference_steps,
+                                        guidance_scale=guidance_scale,
+                                        generator=generator
+                                    )
+                                    video_frames = output.frames[0]
+                            else:
+                                raise RuntimeError("No video pipeline available.")
 
                         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
                             tmp_path = tmp.name
 
-                        imageio.mimsave(tmp_path, [np.array(f) for f in video_frames], fps=fps, format="mp4")
+                        try:
+                            from diffusers.utils import export_to_video
+                            export_to_video(video_frames, output_video_path=tmp_path, fps=fps)
+                        except Exception as e_exp:
+                            print(f"diffusers export_to_video fallback ({e_exp}), using imageio...")
+                            imageio.mimsave(tmp_path, [np.array(f) for f in video_frames], fps=fps, format="mp4")
+
                         with open(tmp_path, "rb") as f:
                             video_data = f.read()
                         os.remove(tmp_path)
