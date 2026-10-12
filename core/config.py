@@ -43,6 +43,14 @@ class Settings:
     MODAL_ENVIRONMENT: str = _get_val("MODAL_ENVIRONMENT", "main")
     STUDIO_PASSWORD: str = _get_val("STUDIO_PASSWORD", "")
 
+    # Propagate Modal tokens to os.environ if running on Streamlit Cloud
+    MODAL_TOKEN_ID: str = _get_val("MODAL_TOKEN_ID", "")
+    MODAL_TOKEN_SECRET: str = _get_val("MODAL_TOKEN_SECRET", "")
+    if MODAL_TOKEN_ID and not os.getenv("MODAL_TOKEN_ID"):
+        os.environ["MODAL_TOKEN_ID"] = MODAL_TOKEN_ID
+    if MODAL_TOKEN_SECRET and not os.getenv("MODAL_TOKEN_SECRET"):
+        os.environ["MODAL_TOKEN_SECRET"] = MODAL_TOKEN_SECRET
+
     DEFAULT_FPS: int = int(_get_val("DEFAULT_FPS", "24"))
     DEFAULT_RESOLUTION: str = _get_val("DEFAULT_RESOLUTION", "1080p")
     DEFAULT_ASPECT_RATIO: str = _get_val("DEFAULT_ASPECT_RATIO", "16:9")
