@@ -38,12 +38,11 @@ try:
         })
     )
 
-    # Optional HF secrets
+    # Optional HF secrets (injected automatically if HF_TOKEN is in environment)
     secrets = []
-    try:
-        secrets.append(modal.Secret.from_name("huggingface-secret"))
-    except Exception:
-        pass
+    hf_token = os.getenv("HF_TOKEN")
+    if hf_token:
+        secrets.append(modal.Secret.from_dict({"HF_TOKEN": hf_token}))
 
     # Inactivity shutdown window (in seconds)
     # Automatically terminates GPU instance if no requests arrive within this window.
