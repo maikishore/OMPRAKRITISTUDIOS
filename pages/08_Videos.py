@@ -123,57 +123,103 @@ with tab_t2v:
         t2v_def_prompt = t2v_sel_preset if t2v_sel_preset != "(Custom Prompt)" else (
             st.session_state.get("t2v_prompt") or t2v_presets[0]
         )
-        t2v_prompt = st.text_area("Video Scene Prompt", value=t2v_def_prompt, height=90, key="t2v_prompt_input")
+        t2v_prompt = st.text_area(
+            "Video Scene Prompt",
+            value=t2v_def_prompt,
+            height=90,
+            key="t2v_prompt_input",
+            help="Direct prompt passed cleanly to the video engine without unwanted automatic strings."
+        )
         t2v_neg_prompt = st.text_input(
             "Negative Prompt",
-            value="blurry, distorted, jitter, bad anatomy, watermark, low quality",
+            value="worst quality, blurry, distorted, jitter, low quality, artifacts, watermark",
             key="t2v_neg_prompt_input"
         )
 
-        c_t2v_cam, c_t2v_ar = st.columns(2)
-        with c_t2v_cam:
-            t2v_camera = st.selectbox(
-                "Camera Movement",
-                ["Slow Push-In (Dolly)", "Smooth Pan Left", "Smooth Pan Right", "Tracking Shot", "Dynamic Orbit", "Handheld Realism", "Static Lock"],
-                key="t2v_cam_sel"
-            )
+        c_t2v_ar, c_t2v_dur = st.columns(2)
         with c_t2v_ar:
-            t2v_ar = st.selectbox("Aspect Ratio", ["16:9 (Widescreen 960x544)", "9:16 (Vertical 544x960)", "1:1 (Square 512x512)"], key="t2v_ar_sel")
-            if "16:9" in t2v_ar:
-                t2v_w, t2v_h = 960, 544
-            elif "9:16" in t2v_ar:
-                t2v_w, t2v_h = 544, 960
-            else:
+            t2v_ar = st.selectbox(
+                "Aspect Ratio / Resolution",
+                [
+                    "16:9 Cinema Sharp (768x512 - Native Sharpness)",
+                    "9:16 Vertical (512x768 - Native Sharpness)",
+                    "1:1 Square (512x512 - Native Sharpness)",
+                    "16:9 Extended (960x544)"
+                ],
+                index=0,
+                key="t2v_ar_sel",
+                help="768x512 is the native training resolution of LTX-Video. Using native resolution produces crisp, sharp video."
+            )
+            if "768x512" in t2v_ar:
+                t2v_w, t2v_h = 768, 512
+            elif "512x768" in t2v_ar:
+                t2v_w, t2v_h = 512, 768
+            elif "512x512" in t2v_ar:
                 t2v_w, t2v_h = 512, 512
+            else:
+                t2v_w, t2v_h = 960, 544
 
-        c_t2v_dur, c_t2v_prov = st.columns(2)
         with c_t2v_dur:
             t2v_frames = st.select_slider(
                 "Frames / Duration",
                 options=[25, 49, 73, 97, 121],
-                value=73,
+                value=49,
                 format_func=lambda x: f"{x} frames (~{round(x/24, 1)}s)",
                 key="t2v_frames_sel"
             )
+
+        with st.expander("⚙️ Advanced Quality & Style Settings", expanded=False):
+            c_q1, c_q2 = st.columns(2)
+            with c_q1:
+                t2v_steps = st.slider(
+                    "Inference Steps (Clarity)",
+                    min_value=20,
+                    max_value=50,
+                    value=35,
+                    step=5,
+                    help="Higher steps (35-45) significantly removes blurriness and improves high-frequency motion details.",
+                    key="t2v_steps_slider"
+                )
+                t2v_guidance = st.slider(
+                    "Prompt Guidance (CFG)",
+                    min_value=2.0,
+                    max_value=6.0,
+                    value=3.5,
+                    step=0.5,
+                    help="3.0 - 3.5 provides balanced prompt adherence without over-saturation.",
+                    key="t2v_guidance_slider"
+                )
+            with c_q2:
+                t2v_camera = st.selectbox(
+                    "Optional Camera Movement",
+                    ["(None - Straight Prompt Only)", "Slow Push-In (Dolly)", "Smooth Pan Left", "Smooth Pan Right", "Tracking Shot", "Dynamic Orbit", "Handheld Realism"],
+                    key="t2v_cam_sel"
+                )
+                t2v_append_cam = st.checkbox("Append Camera Movement to Prompt", value=False, key="t2v_append_cam_cb")
+
+        c_t2v_prov, c_t2v_audio = st.columns(2)
         with c_t2v_prov:
             t2v_provider_choice = st.selectbox("Video Engine Backend", ["auto", "modal", "mock"], key="t2v_prov_sel")
-
-        t2v_sync_audio = st.checkbox("🔊 Generate Synchronized Audio Effects (LTX-2.5)", value=True, key="t2v_audio_cb")
+        with c_t2v_audio:
+            t2v_sync_audio = st.checkbox("🔊 Generate Synchronized Audio Effects (LTX-2.5)", value=True, key="t2v_audio_cb")
 
         if st.button("🎬 Generate Text-to-Video", type="primary", use_container_width=True, key="t2v_gen_btn"):
-            full_prompt = f"{t2v_prompt}, camera {t2v_camera.lower()}, cinematic lighting, hyper-realistic"
-            with st.spinner(f"Generating {t2v_frames} frames ({t2v_camera}) on LTX-2.5..."):
+            clean_prompt = t2v_prompt.strip()
+            if t2v_append_cam and "(None" not in t2v_camera:
+                clean_prompt = f"{clean_prompt}, camera {t2v_camera.lower()}"
+
+            with st.spinner(f"Generating {t2v_frames} frames ({t2v_w}x{t2v_h}, {t2v_steps} steps) on Video Engine..."):
                 try:
                     vid_prov = VideoProviderFactory.get_provider(t2v_provider_choice)
                     t2v_req = VideoGenerationRequest(
-                        prompt=full_prompt,
+                        prompt=clean_prompt,
                         negative_prompt=t2v_neg_prompt,
                         width=t2v_w,
                         height=t2v_h,
                         fps=24,
                         num_frames=t2v_frames,
-                        num_inference_steps=30,
-                        guidance_scale=3.5,
+                        num_inference_steps=t2v_steps,
+                        guidance_scale=t2v_guidance,
                         seed=42,
                         parameters={"audio": t2v_sync_audio, "engine": "LTX-2.5"}
                     )
@@ -183,6 +229,8 @@ with tab_t2v:
                     st.session_state["t2v_video_bytes"] = v_res.video_bytes
                     st.session_state["t2v_video_duration"] = v_res.duration
                     st.session_state["t2v_video_latency"] = dt
+                    st.session_state["t2v_res_w"] = t2v_w
+                    st.session_state["t2v_res_h"] = t2v_h
                     st.success(f"✅ Text-to-Video rendered in {dt}s ({v_res.duration}s clip)!")
                 except Exception as e:
                     st.error(f"Generation error: {e}")

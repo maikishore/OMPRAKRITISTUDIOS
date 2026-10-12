@@ -83,10 +83,12 @@ try:
             # Primary Attempt: Lightricks LTX-2.5 Multimodal Foundation (Joint Video + Audio)
             try:
                 from diffusers import LTX2Pipeline, LTX2ImageToVideoPipeline
+                hf_tok = os.getenv("HF_TOKEN") or None
                 print("Loading Lightricks/LTX-2.5-Diffusers (Joint Video + Audio)...")
                 self.t2v_pipe = LTX2Pipeline.from_pretrained(
                     "Lightricks/LTX-2.5-Diffusers",
-                    torch_dtype=torch.bfloat16
+                    torch_dtype=torch.bfloat16,
+                    token=hf_tok
                 )
                 self.t2v_pipe.enable_model_cpu_offload()
                 if hasattr(self.t2v_pipe, "vae"):
