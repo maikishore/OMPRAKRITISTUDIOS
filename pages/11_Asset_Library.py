@@ -40,7 +40,10 @@ with get_db_session() as db:
             col = cols[idx % 3]
             with col:
                 if Path(asset.file_path).exists():
-                    st.image(asset.file_path, use_container_width=True)
+                    if "video" in (asset.mime_type or "") or asset.file_path.endswith(".mp4"):
+                        st.video(asset.file_path)
+                    else:
+                        st.image(asset.file_path, use_container_width=True)
                     st.markdown(f"**{asset.type.upper()}** (`{asset.id[:8]}`)")
                     st.caption(f"Model: {asset.model} | Approved: {'✅' if asset.is_approved else '❌'}")
                     act_col1, act_col2 = st.columns([2, 1])
