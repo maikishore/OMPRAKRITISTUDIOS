@@ -7,8 +7,12 @@ if str(ROOT_DIR) not in sys.path:
 import streamlit as st
 from core.config import settings
 from core.modal_service import ModalService
+from core.auth_gate import require_auth
 
 st.set_page_config(page_title="Studio Settings & Modal GPU Control | MicroDrama Studio", page_icon="⚙️", layout="wide")
+
+if not require_auth():
+    st.stop()
 
 st.title("⚙️ Studio Settings & Cloud GPU Control Center")
 st.caption("Manage Modal GPU serverless deployments, test live model connections, stop active GPU workers to save costs, and configure AI providers.")
@@ -199,16 +203,55 @@ with tab_llm:
     st.subheader("🧠 Large Language Model (Story & Shot Engine)")
     st.caption("Configure the primary AI model used for narrative bible compilation, scene breakdown, and shot compilation.")
 
-    llm_col1, llm_col2 = st.columns(2)
-    with llm_col1:
-        st.text_input("Active LLM Provider", value=settings.LLM_PROVIDER, disabled=True)
-        st.text_input("Primary Model Name", value=settings.LLM_MODEL, disabled=True)
-    llm_key_present = bool(getattr(settings, "GEMINI_API_KEY", None) or getattr(settings, "LLM_API_KEY", None) or getattr(settings, "CLOUDFLARE_AUTH_TOKEN", None))
-    with llm_col2:
-        st.text_input("LLM API Key / Token Status", value="✅ Configured via environment" if llm_key_present else "❌ Missing", disabled=True)
-        st.text_input("Temperature", value="0.7 (Cinematic Creative)", disabled=True)
+    with st.container(border=True):
+        st.markdown("### 🔑 Story & Dialogue AI Credentials")
+        st.caption("Update your Cloudflare Workers AI or Gemini credentials. Saves to active session and updates `.env`.")
 
-    st.info("💡 To change the LLM model or switch to another provider, update the `.env` configuration file in the project root.")
+        llm_c1, llm_c2 = st.columns(2)
+        with llm_c1:
+            inp_llm_prov = st.selectbox(
+                "LLM Provider",
+                ["cloudflare", "gemini", "mock"],
+                index=0 if settings.LLM_PROVIDER == "cloudflare" else 1
+            )
+            inp_cf_account = st.text_input(
+                "Cloudflare Account ID",
+                value=settings.CLOUDFLARE_ACCOUNT_ID or "",
+                placeholder="e34439a158164fecb2f27325ee609fc0"
+            )
+        with llm_c2:
+            inp_llm_model = st.text_input(
+                "Model Identifier",
+                value=settings.LLM_MODEL or "@cf/google/gemma-4-26b-a4b-it"
+            )
+            inp_cf_token = st.text_input(
+                "Cloudflare Auth Token / Gemini Key",
+                value=settings.CLOUDFLARE_AUTH_TOKEN or settings.GEMINI_API_KEY or "",
+                type="password",
+                placeholder="cfut_..."
+            )
+
+        if st.button("💾 Save LLM Credentials", type="primary", use_container_width=True):
+            import os
+            from core.auth_gate import _update_env_var
+            os.environ["LLM_PROVIDER"] = inp_llm_prov
+            os.environ["LLM_MODEL"] = inp_llm_model
+            os.environ["CLOUDFLARE_ACCOUNT_ID"] = inp_cf_account
+            os.environ["CLOUDFLARE_AUTH_TOKEN"] = inp_cf_token
+            os.environ["GEMINI_API_KEY"] = inp_cf_token
+
+            settings.LLM_PROVIDER = inp_llm_prov
+            settings.LLM_MODEL = inp_llm_model
+            settings.CLOUDFLARE_ACCOUNT_ID = inp_cf_account
+            settings.CLOUDFLARE_AUTH_TOKEN = inp_cf_token
+            settings.GEMINI_API_KEY = inp_cf_token
+
+            _update_env_var("LLM_PROVIDER", inp_llm_prov)
+            _update_env_var("LLM_MODEL", inp_llm_model)
+            _update_env_var("CLOUDFLARE_ACCOUNT_ID", inp_cf_account)
+            _update_env_var("CLOUDFLARE_AUTH_TOKEN", inp_cf_token)
+            st.success("✅ LLM credentials saved and updated!")
+            st.rerun()
 
 # -------------------------------------------------------------
 # TAB 3: STORAGE & DATABASE SETTINGS

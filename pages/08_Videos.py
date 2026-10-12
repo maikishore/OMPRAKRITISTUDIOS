@@ -24,12 +24,16 @@ from providers.image.factory import ImageProviderFactory
 from providers.image.base import ImageGenerationRequest
 from providers.video.factory import VideoProviderFactory
 from providers.video.base import VideoGenerationRequest
+from core.auth_gate import require_auth
 
 st.set_page_config(
     page_title="Video Studio & Modal GPU Control | MicroDrama Studio",
     page_icon="📹",
     layout="wide"
 )
+
+if not require_auth():
+    st.stop()
 
 # -----------------------------------------------------------------------------
 # TOP BANNER: MODAL SERVERLESS GPU CONTROL & INACTIVITY AUTO-SHUTDOWN
