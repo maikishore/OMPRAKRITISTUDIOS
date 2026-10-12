@@ -97,15 +97,124 @@ st.markdown("---")
 # -----------------------------------------------------------------------------
 # MAIN WORKSPACE TABS
 # -----------------------------------------------------------------------------
-tab_lab, tab_prod = st.tabs([
-    "🧪 Text-to-Image-to-Video Practice Lab",
-    "🎬 Project Shot Video Production"
+tab_t2v, tab_i2v, tab_prod = st.tabs([
+    "🎥 1. Text-to-Video (LTX-2.5 Multimodal)",
+    "🧪 2. Text-to-Image-to-Video Practice Lab",
+    "🎬 3. Project Shot Video Production"
 ])
 
 # =============================================================================
-# TAB 1: TEXT-TO-IMAGE-TO-VIDEO PRACTICE LAB
+# TAB 1: TEXT-TO-VIDEO (LTX-2.5 MULTIMODAL FOUNDATION)
 # =============================================================================
-with tab_lab:
+with tab_t2v:
+    st.subheader("🎥 Text-to-Video Studio (Lightricks LTX-2.5)")
+    st.write("Generate high-fidelity cinematic video clips with natively synchronized audio directly from text descriptions.")
+
+    t2v_col_left, t2v_col_right = st.columns([1, 1], gap="large")
+
+    with t2v_col_left:
+        t2v_presets = [
+            "A cinematic medium close-up of a stylish detective turning head slowly under rain, neon blue reflections, footsteps on wet asphalt, 8k",
+            "An elegant woman in an evening gown entering a lavish ballroom, camera tracking forward smoothly, murmuring guests in background",
+            "A lone traveler walking across a windswept desert at golden hour, sand blowing in breeze, cinematic wide anamorphic",
+            "Cyberpunk motorcycle speeding through a high-tech illuminated tunnel, motion blur, engine roar, dramatic lens flare"
+        ]
+        t2v_sel_preset = st.selectbox("💡 Cinematic Presets", ["(Custom Prompt)"] + t2v_presets, key="t2v_preset_sel")
+        t2v_def_prompt = t2v_sel_preset if t2v_sel_preset != "(Custom Prompt)" else (
+            st.session_state.get("t2v_prompt") or t2v_presets[0]
+        )
+        t2v_prompt = st.text_area("Video Scene Prompt", value=t2v_def_prompt, height=90, key="t2v_prompt_input")
+        t2v_neg_prompt = st.text_input(
+            "Negative Prompt",
+            value="blurry, distorted, jitter, bad anatomy, watermark, low quality",
+            key="t2v_neg_prompt_input"
+        )
+
+        c_t2v_cam, c_t2v_ar = st.columns(2)
+        with c_t2v_cam:
+            t2v_camera = st.selectbox(
+                "Camera Movement",
+                ["Slow Push-In (Dolly)", "Smooth Pan Left", "Smooth Pan Right", "Tracking Shot", "Dynamic Orbit", "Handheld Realism", "Static Lock"],
+                key="t2v_cam_sel"
+            )
+        with c_t2v_ar:
+            t2v_ar = st.selectbox("Aspect Ratio", ["16:9 (Widescreen 960x544)", "9:16 (Vertical 544x960)", "1:1 (Square 512x512)"], key="t2v_ar_sel")
+            if "16:9" in t2v_ar:
+                t2v_w, t2v_h = 960, 544
+            elif "9:16" in t2v_ar:
+                t2v_w, t2v_h = 544, 960
+            else:
+                t2v_w, t2v_h = 512, 512
+
+        c_t2v_dur, c_t2v_prov = st.columns(2)
+        with c_t2v_dur:
+            t2v_frames = st.select_slider(
+                "Frames / Duration",
+                options=[48, 72, 97, 121],
+                value=72,
+                format_func=lambda x: f"{x} frames (~{round(x/24, 1)}s)",
+                key="t2v_frames_sel"
+            )
+        with c_t2v_prov:
+            t2v_provider_choice = st.selectbox("Video Engine Backend", ["auto", "modal", "mock"], key="t2v_prov_sel")
+
+        t2v_sync_audio = st.checkbox("🔊 Generate Synchronized Audio Effects (LTX-2.5)", value=True, key="t2v_audio_cb")
+
+        if st.button("🎬 Generate Text-to-Video", type="primary", use_container_width=True, key="t2v_gen_btn"):
+            full_prompt = f"{t2v_prompt}, camera {t2v_camera.lower()}, cinematic lighting, hyper-realistic"
+            with st.spinner(f"Generating {t2v_frames} frames ({t2v_camera}) on LTX-2.5..."):
+                try:
+                    vid_prov = VideoProviderFactory.get_provider(t2v_provider_choice)
+                    t2v_req = VideoGenerationRequest(
+                        prompt=full_prompt,
+                        negative_prompt=t2v_neg_prompt,
+                        width=t2v_w,
+                        height=t2v_h,
+                        fps=24,
+                        num_frames=t2v_frames,
+                        num_inference_steps=30,
+                        guidance_scale=3.5,
+                        seed=42,
+                        parameters={"audio": t2v_sync_audio, "engine": "LTX-2.5"}
+                    )
+                    t0 = time.time()
+                    v_res = vid_prov.generate(t2v_req)
+                    dt = round(time.time() - t0, 2)
+                    st.session_state["t2v_video_bytes"] = v_res.video_bytes
+                    st.session_state["t2v_video_duration"] = v_res.duration
+                    st.session_state["t2v_video_latency"] = dt
+                    st.success(f"✅ Text-to-Video rendered in {dt}s ({v_res.duration}s clip)!")
+                except Exception as e:
+                    st.error(f"Generation error: {e}")
+
+    with t2v_col_right:
+        st.markdown("### 📺 Rendered Video Player")
+        t2v_bytes = st.session_state.get("t2v_video_bytes")
+        if t2v_bytes:
+            st.video(t2v_bytes)
+            spec_col1, spec_col2 = st.columns(2)
+            with spec_col1:
+                st.caption(f"⏱️ Duration: **{st.session_state.get('t2v_video_duration', 0)}s**")
+                st.caption(f"⚡ Generation Time: **{st.session_state.get('t2v_video_latency', 0)}s**")
+            with spec_col2:
+                st.caption(f"📐 Resolution: **{t2v_w}x{t2v_h}**")
+                st.caption("🔊 Audio: **Synchronized**" if t2v_sync_audio else "🔇 Silent")
+
+            st.download_button(
+                "⬇️ Download Video (MP4)",
+                data=t2v_bytes,
+                file_name="ltx25_text_to_video.mp4",
+                mime="video/mp4",
+                use_container_width=True,
+                key="t2v_dl_btn"
+            )
+        else:
+            st.info("Rendered video preview will appear here once generated.")
+
+# =============================================================================
+# TAB 2: TEXT-TO-IMAGE-TO-VIDEO PRACTICE LAB
+# =============================================================================
+with tab_i2v:
     st.subheader("🧪 Practice Lab: Text ➡️ Keyframe Image ➡️ Video Clip")
     st.write("Generate a deterministic high-fidelity keyframe from text, then animate it into a coherent video clip with camera dynamics.")
 

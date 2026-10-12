@@ -23,13 +23,13 @@ class ModalService:
         },
         {
             "id": "video",
-            "name": "LTX Video Generator (L4/A10G GPU)",
+            "name": "Lightricks LTX-2.5 Multimodal Engine (Video + Synchronized Audio)",
             "app_name": "microdrama-studio-video",
             "class_name": "LTXVideoGenerator",
             "worker_file": "modal/video_worker.py",
-            "description": "LTX-Video 0.9.5 high-motion camera & character video generator.",
-            "gpu": "NVIDIA L4 / A10G",
-            "phase": "Phase 5"
+            "description": "Lightricks LTX-2.5 joint video & synchronized sound generation from text & image prompts (A100 or L4 GPU).",
+            "gpu": "NVIDIA A100 / L4",
+            "phase": "Phase 5 (Active)"
         },
         {
             "id": "audio",
@@ -65,21 +65,30 @@ class ModalService:
 
     @classmethod
     def get_credentials(cls) -> Dict[str, str]:
-        """Returns the currently configured Modal token ID and secret."""
+        """Returns the currently configured Modal token ID, secret, and HF token."""
         from core.config import settings
         token_id = os.getenv("MODAL_TOKEN_ID", "") or getattr(settings, "MODAL_TOKEN_ID", "")
         token_secret = os.getenv("MODAL_TOKEN_SECRET", "") or getattr(settings, "MODAL_TOKEN_SECRET", "")
+        hf_token = os.getenv("HF_TOKEN", "") or getattr(settings, "HF_TOKEN", "")
         return {
             "token_id": token_id,
             "token_secret": token_secret,
+            "hf_token": hf_token,
             "environment": os.getenv("MODAL_ENVIRONMENT", "main")
         }
 
     @classmethod
-    def save_credentials(cls, token_id: str, token_secret: str, environment: str = "main") -> Tuple[bool, str]:
+    def save_credentials(
+        cls,
+        token_id: str,
+        token_secret: str,
+        environment: str = "main",
+        hf_token: str = ""
+    ) -> Tuple[bool, str]:
         """Saves Modal credentials to os.environ, updates .env file, and syncs modal CLI profile."""
         token_id = token_id.strip()
         token_secret = token_secret.strip()
+        hf_token = hf_token.strip()
         if not token_id or not token_secret:
             return False, "Token ID and Token Secret cannot be empty."
 
@@ -87,12 +96,16 @@ class ModalService:
         os.environ["MODAL_TOKEN_ID"] = token_id
         os.environ["MODAL_TOKEN_SECRET"] = token_secret
         os.environ["MODAL_ENVIRONMENT"] = environment
+        if hf_token:
+            os.environ["HF_TOKEN"] = hf_token
 
         # 2. Update settings in-memory
         from core.config import settings
         settings.MODAL_TOKEN_ID = token_id
         settings.MODAL_TOKEN_SECRET = token_secret
         settings.MODAL_ENVIRONMENT = environment
+        if hf_token:
+            settings.HF_TOKEN = hf_token
 
         # 3. Update local .env file if it exists
         try:
@@ -105,6 +118,7 @@ class ModalService:
             id_set = False
             sec_set = False
             env_set = False
+            hf_set = False
             new_lines = []
             for line in lines:
                 if line.startswith("MODAL_TOKEN_ID="):
@@ -116,6 +130,10 @@ class ModalService:
                 elif line.startswith("MODAL_ENVIRONMENT="):
                     new_lines.append(f"MODAL_ENVIRONMENT={environment}\n")
                     env_set = True
+                elif line.startswith("HF_TOKEN="):
+                    if hf_token:
+                        new_lines.append(f"HF_TOKEN={hf_token}\n")
+                        hf_set = True
                 else:
                     new_lines.append(line)
 
@@ -125,6 +143,8 @@ class ModalService:
                 new_lines.append(f"MODAL_TOKEN_SECRET={token_secret}\n")
             if not env_set:
                 new_lines.append(f"MODAL_ENVIRONMENT={environment}\n")
+            if hf_token and not hf_set:
+                new_lines.append(f"HF_TOKEN={hf_token}\n")
 
             with open(env_file, "w") as f:
                 f.writelines(new_lines)
@@ -189,9 +209,10 @@ class ModalService:
         cls,
         worker_file: str,
         root_dir: Optional[Path] = None,
-        inactivity_timeout_minutes: int = 15
+        inactivity_timeout_minutes: int = 15,
+        target_gpu: str = "A100"
     ) -> Tuple[bool, str]:
-        """Deploys a Modal worker script with configured inactivity auto-shutdown timer."""
+        """Deploys a Modal worker script with configured inactivity auto-shutdown timer and target GPU."""
         cli = cls.get_modal_cli_path()
         cwd = str(root_dir) if root_dir else None
         
@@ -209,6 +230,7 @@ class ModalService:
         scaledown_seconds = max(60, inactivity_timeout_minutes * 60)
         env = os.environ.copy()
         env["MODAL_SCALEDOWN_WINDOW"] = str(scaledown_seconds)
+        env["MODAL_VIDEO_GPU"] = target_gpu
 
         try:
             res = subprocess.run(

@@ -76,11 +76,25 @@ with tab_modal:
                 help="Target Modal environment (default: 'main')"
             )
 
+        # Hugging Face Access Token Input
+        hf_c1, hf_c2 = st.columns([4, 1.2])
+        with hf_c1:
+            inp_hf_token = st.text_input(
+                "🤗 Hugging Face Access Token (Required for gated LTX-2.5 weights)",
+                value=curr_creds.get("hf_token", ""),
+                type="password",
+                placeholder="hf_...",
+                help="Your Hugging Face Read Token from huggingface.co/settings/tokens. Required to download Lightricks/LTX-2.5."
+            )
+        with hf_c2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("[Get HF Token ↗](https://huggingface.co/settings/tokens)")
+
         btn_c1, btn_c2, btn_c3 = st.columns([2, 2, 3])
         with btn_c1:
             if st.button("💾 Save Credentials", type="primary", use_container_width=True):
                 with st.spinner("Saving and updating credentials..."):
-                    ok, msg = ModalService.save_credentials(inp_token_id, inp_token_secret, inp_env)
+                    ok, msg = ModalService.save_credentials(inp_token_id, inp_token_secret, inp_env, inp_hf_token)
                     if ok:
                         st.success(msg)
                         st.rerun()
@@ -146,8 +160,8 @@ with tab_modal:
                 else:
                     st.info("⚪ **STOPPED / NOT DEPLOYED**")
 
-            # Inactivity Timeout Setting
-            set_c1, set_c2 = st.columns([1, 2])
+            # Inactivity Timeout & Target GPU Setting
+            set_c1, set_c2 = st.columns([1, 1])
             with set_c1:
                 idle_timeout_m = st.selectbox(
                     "⏳ Auto-Shutdown Idle Window",
@@ -156,17 +170,30 @@ with tab_modal:
                     key=f"idle_to_{m_id}",
                     help="Modal automatically shuts down the GPU worker if no generation requests are received within this time window."
                 )
+            with set_c2:
+                if m_id == "video":
+                    gpu_target_choice = st.selectbox(
+                        "⚡ Target GPU Architecture",
+                        options=["A100", "L4"],
+                        index=0,
+                        key=f"gpu_sel_{m_id}",
+                        help="NVIDIA A100 is recommended for 22B LTX-2.5 with audio. L4 is a budget option."
+                    )
+                else:
+                    gpu_target_choice = "L4"
+                    st.caption(f"GPU Hardware: `{model_info['gpu']}`")
 
             btn_col1, btn_col2, btn_col3 = st.columns(3)
             
             with btn_col1:
-                deploy_btn_label = "🚀 Redeploy Model" if is_dep else "🚀 Deploy to Modal GPU"
+                deploy_btn_label = "🚀 Redeploy Model" if is_dep else f"🚀 Deploy to Modal ({gpu_target_choice})"
                 if st.button(deploy_btn_label, key=f"dep_btn_{m_id}", use_container_width=True, type="primary" if not is_dep else "secondary"):
-                    with st.spinner(f"Deploying {model_info['name']} ({worker_file}) with {idle_timeout_m}m auto-shutdown window..."):
+                    with st.spinner(f"Deploying {model_info['name']} ({worker_file}) on {gpu_target_choice} with {idle_timeout_m}m auto-shutdown window..."):
                         success, out = ModalService.deploy_worker(
                             worker_file,
                             root_dir=ROOT_DIR,
-                            inactivity_timeout_minutes=idle_timeout_m
+                            inactivity_timeout_minutes=idle_timeout_m,
+                            target_gpu=gpu_target_choice
                         )
                         if success:
                             st.success(f"Successfully deployed `{app_name}` (Auto-shutdown: {idle_timeout_m}m)!")

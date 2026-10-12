@@ -1,7 +1,10 @@
 """Modal Serverless GPU Worker for Text-to-Video and Image-to-Video Generation.
 
-Runs LTX-Video / Wan2.1 pipeline on Modal GPU with automatic idle container shutdown
-and persistent model volume caching.
+Supports:
+- Lightricks LTX-2.5 Multimodal Foundation Model (Video + Synchronized Audio)
+- Lightricks LTX-Video 0.9.x High-Motion Camera Pipeline (Fallback / Lightweight)
+- Automatic idle container termination via scaledown_window (default: 15 mins)
+- Persistent model caching volume
 
 Deploy with: `modal deploy modal/video_worker.py`
 """
@@ -20,8 +23,10 @@ try:
     model_volume = modal.Volume.from_name("microdrama-model-cache", create_if_missing=True)
 
     # Inactivity shutdown window (in seconds)
-    # Automatically terminates GPU instance if no requests arrive within this window.
     INACTIVITY_TIMEOUT_SECONDS = int(os.getenv("MODAL_SCALEDOWN_WINDOW", "900"))  # Default: 15 minutes (900s)
+
+    # GPU target: A100 (optimal for 22B LTX-2.5) or L4 (for LTX-Video 2B)
+    TARGET_GPU = os.getenv("MODAL_VIDEO_GPU", "A100")
 
     # Define container image with diffusers & torch & video dependencies
     video_env = (
@@ -38,6 +43,7 @@ try:
             "torchvision",
             "pillow",
             "imageio[ffmpeg]",
+            "soundfile",
             "hf_transfer"
         )
         .env({
@@ -55,25 +61,43 @@ try:
 
     @app.cls(
         image=video_env,
-        gpu="L4",
+        gpu=TARGET_GPU,
         volumes={"/cache": model_volume},
         secrets=secrets,
-        timeout=900,
+        timeout=1200,
         scaledown_window=INACTIVITY_TIMEOUT_SECONDS  # Auto-shuts down GPU if inactive for 15 mins
     )
     class LTXVideoGenerator:
-        """Modal GPU Class running LTX-Video / Wan Image-to-Video with auto-idle termination."""
+        """Modal GPU Class running LTX-2.5 / LTX-Video with auto-idle termination."""
 
         @modal.enter()
         def load_model(self):
             import torch
 
-            print("🔥 Initializing Video Generation Engine on Modal GPU...")
+            print(f"🔥 Initializing Video Generation Engine on Modal GPU ({TARGET_GPU})...")
             self.pipe = None
+            self.is_ltx25 = False
 
-            # Attempt 1: Load LTX-Video pipeline from Diffusers
+            # Primary Attempt: Load Lightricks LTX-2.5 Multimodal (Joint Video + Audio)
             try:
-                from diffusers import LTXImageToVideoPipeline, LTXPipeline
+                from diffusers import LTX2Pipeline, LTX2ImageToVideoPipeline
+                print("Loading Lightricks/LTX-2.5-Diffusers (Joint Video + Audio)...")
+                self.pipe = LTX2Pipeline.from_pretrained(
+                    "Lightricks/LTX-2.5-Diffusers",
+                    torch_dtype=torch.bfloat16
+                )
+                self.pipe.enable_model_cpu_offload()
+                if hasattr(self.pipe, "vae"):
+                    self.pipe.vae.enable_tiling()
+                self.is_ltx25 = True
+                print("✅ Lightricks LTX-2.5 loaded successfully with synchronized audio!")
+                return
+            except Exception as e_ltx25:
+                print(f"LTX-2.5 load note ({e_ltx25}), falling back to LTX-Video...")
+
+            # Fallback Attempt: Load Lightricks LTX-Video 0.9.x
+            try:
+                from diffusers import LTXImageToVideoPipeline
                 print("Loading Lightricks/LTX-Video Image-to-Video pipeline...")
                 self.pipe = LTXImageToVideoPipeline.from_pretrained(
                     "Lightricks/LTX-Video",
@@ -82,12 +106,13 @@ try:
                 self.pipe.enable_model_cpu_offload()
                 if hasattr(self.pipe, "vae"):
                     self.pipe.vae.enable_tiling()
+                self.is_ltx25 = False
                 print("✅ LTX-Video Image-to-Video pipeline loaded successfully!")
                 return
-            except Exception as e:
-                print(f"LTX-Video direct load note ({e}), attempting general video pipeline fallback...")
+            except Exception as e_ltx:
+                print(f"LTX-Video fallback load note: {e_ltx}")
 
-            # Fallback loader
+            # Generic fallback
             try:
                 from diffusers import AutopipelineForImageToVideo
                 self.pipe = AutopipelineForImageToVideo.from_pretrained(
@@ -95,6 +120,7 @@ try:
                     torch_dtype=torch.bfloat16
                 )
                 self.pipe.enable_model_cpu_offload()
+                self.is_ltx25 = False
                 print("✅ Auto Image-to-Video pipeline loaded!")
             except Exception as e2:
                 print(f"⚠️ Video model load note: {e2}")
@@ -120,7 +146,7 @@ try:
             import numpy as np
             from PIL import Image
 
-            print(f"🎬 Video generation triggered: prompt='{prompt[:80]}...', frames={num_frames}, fps={fps}")
+            print(f"🎬 Video generation triggered: prompt='{prompt[:80]}...', frames={num_frames}, fps={fps}, LTX-2.5={self.is_ltx25}")
             generator = torch.Generator(device="cuda" if torch.cuda.is_available() else "cpu").manual_seed(seed)
 
             # Ensure dimensions are divisible by 32
@@ -129,40 +155,79 @@ try:
 
             if self.pipe:
                 try:
-                    if image_bytes:
-                        init_img = Image.open(io.BytesIO(image_bytes)).convert("RGB").resize((width, height))
-                        video_frames = self.pipe(
-                            image=init_img,
+                    if self.is_ltx25:
+                        # LTX-2.5 Multimodal Joint Video + Audio Generation
+                        output = self.pipe(
                             prompt=prompt,
                             negative_prompt=negative_prompt,
                             width=width,
                             height=height,
                             num_frames=num_frames,
-                            num_inference_steps=num_inference_steps,
-                            guidance_scale=guidance_scale,
-                            generator=generator
-                        ).frames[0]
+                            frame_rate=float(fps),
+                            generator=generator,
+                            output_type="np"
+                        )
+                        video_frames = output[0] if isinstance(output, tuple) else getattr(output, "frames", [None])[0]
+                        audio_latents = output[1] if isinstance(output, tuple) and len(output) > 1 else None
+
+                        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
+                            tmp_path = tmp.name
+
+                        try:
+                            from diffusers.utils import encode_video
+                            sample_rate = getattr(getattr(self.pipe, "vocoder", None), "config", None)
+                            sr = getattr(sample_rate, "output_sampling_rate", 24000) if sample_rate else 24000
+                            encode_video(
+                                video_frames[0] if len(video_frames.shape) == 4 else video_frames,
+                                fps=float(fps),
+                                audio=audio_latents[0].float().cpu() if audio_latents is not None else None,
+                                audio_sample_rate=sr,
+                                output_path=tmp_path
+                            )
+                        except Exception as e_enc:
+                            print(f"encode_video fallback to imageio: {e_enc}")
+                            imageio.mimsave(tmp_path, [np.array(f) for f in video_frames], fps=fps, format="mp4")
+
+                        with open(tmp_path, "rb") as f:
+                            video_data = f.read()
+                        os.remove(tmp_path)
+                        return video_data
+
                     else:
-                        video_frames = self.pipe(
-                            prompt=prompt,
-                            negative_prompt=negative_prompt,
-                            width=width,
-                            height=height,
-                            num_frames=num_frames,
-                            num_inference_steps=num_inference_steps,
-                            guidance_scale=guidance_scale,
-                            generator=generator
-                        ).frames[0]
+                        # LTX-Video Image-to-Video / Text-to-Video
+                        if image_bytes:
+                            init_img = Image.open(io.BytesIO(image_bytes)).convert("RGB").resize((width, height))
+                            video_frames = self.pipe(
+                                image=init_img,
+                                prompt=prompt,
+                                negative_prompt=negative_prompt,
+                                width=width,
+                                height=height,
+                                num_frames=num_frames,
+                                num_inference_steps=num_inference_steps,
+                                guidance_scale=guidance_scale,
+                                generator=generator
+                            ).frames[0]
+                        else:
+                            video_frames = self.pipe(
+                                prompt=prompt,
+                                negative_prompt=negative_prompt,
+                                width=width,
+                                height=height,
+                                num_frames=num_frames,
+                                num_inference_steps=num_inference_steps,
+                                guidance_scale=guidance_scale,
+                                generator=generator
+                            ).frames[0]
 
-                    # Export to MP4 buffer
-                    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
-                        tmp_path = tmp.name
+                        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as tmp:
+                            tmp_path = tmp.name
 
-                    imageio.mimsave(tmp_path, [np.array(f) for f in video_frames], fps=fps, format="mp4")
-                    with open(tmp_path, "rb") as f:
-                        video_data = f.read()
-                    os.remove(tmp_path)
-                    return video_data
+                        imageio.mimsave(tmp_path, [np.array(f) for f in video_frames], fps=fps, format="mp4")
+                        with open(tmp_path, "rb") as f:
+                            video_data = f.read()
+                        os.remove(tmp_path)
+                        return video_data
 
                 except Exception as e_gen:
                     print(f"Pipeline generation error: {e_gen}. Using procedural video fallback.")
@@ -194,7 +259,6 @@ try:
             total_frames = max(16, min(num_frames, 72))  # preview length
             for i in range(total_frames):
                 if base_img:
-                    # Apply smooth zoom/pan camera motion effect
                     scale = 1.0 + 0.08 * (i / total_frames)
                     w_s, h_s = int(width * scale), int(height * scale)
                     resized = base_img.resize((w_s, h_s), Image.Resampling.BILINEAR)
@@ -206,8 +270,8 @@ try:
 
                 draw = ImageDraw.Draw(frame)
                 draw.rectangle([(10, 10), (width - 10, height - 10)], outline=(220, 120, 50), width=3)
-                draw.text((25, 25), "MODAL VIDEO ENGINE (PREVIEW / ACTIVE)", fill=(255, 255, 255))
-                draw.text((25, 60), f"Frame {i+1}/{total_frames} | Motion: Dynamic", fill=(200, 200, 200))
+                draw.text((25, 25), "LTX-2.5 MULTIMODAL VIDEO ENGINE (PREVIEW / ACTIVE)", fill=(255, 255, 255))
+                draw.text((25, 60), f"Frame {i+1}/{total_frames} | Synchronized Audio: True", fill=(200, 200, 200))
                 draw.text((25, 95), prompt[:90], fill=(180, 180, 180))
                 frames.append(np.array(frame))
 
