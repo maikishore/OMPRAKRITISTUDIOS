@@ -37,6 +37,66 @@ with tab_modal:
         if st.button("🔄 Refresh Cluster Status", use_container_width=True):
             st.rerun()
 
+    # ---------------------------------------------------------
+    # MODAL CREDENTIALS & TOKEN CONFIGURATION
+    # ---------------------------------------------------------
+    with st.container(border=True):
+        st.markdown("### 🔑 Modal Authentication & API Tokens")
+        st.caption("Enter your Modal Token ID and Secret. Saving will update the active session, persist to your `.env` file, and sync your Modal CLI profile.")
+
+        curr_creds = ModalService.get_credentials()
+        curr_tok_id = curr_creds.get("token_id", "")
+        curr_tok_sec = curr_creds.get("token_secret", "")
+        curr_env = curr_creds.get("environment", "main")
+
+        cred_c1, cred_c2, cred_c3 = st.columns([2.5, 2.5, 1.2])
+        with cred_c1:
+            inp_token_id = st.text_input(
+                "Modal Token ID (`ak-...` or `wk-...`)",
+                value=curr_tok_id,
+                placeholder="wk-YF6jMdfP6xq0X57TQaZPhE",
+                help="Your Modal Token ID from modal.com/settings/tokens or ~/.modal.toml"
+            )
+        with cred_c2:
+            inp_token_secret = st.text_input(
+                "Modal Token Secret (`as-...` or `ws-...`)",
+                value=curr_tok_sec,
+                type="password",
+                placeholder="ws-dzMmvSc9V2Fq1yp9ZjDjuS",
+                help="Your Modal Token Secret. Stored safely."
+            )
+        with cred_c3:
+            inp_env = st.text_input(
+                "Environment",
+                value=curr_env or "main",
+                help="Target Modal environment (default: 'main')"
+            )
+
+        btn_c1, btn_c2, btn_c3 = st.columns([2, 2, 3])
+        with btn_c1:
+            if st.button("💾 Save Credentials", type="primary", use_container_width=True):
+                with st.spinner("Saving and updating credentials..."):
+                    ok, msg = ModalService.save_credentials(inp_token_id, inp_token_secret, inp_env)
+                    if ok:
+                        st.success(msg)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+        with btn_c2:
+            if st.button("🔌 Verify Connection", use_container_width=True):
+                with st.spinner("Pinging Modal API..."):
+                    ok, msg = ModalService.verify_credentials()
+                    if ok:
+                        st.success(msg)
+                    else:
+                        st.error(msg)
+        with btn_c3:
+            if curr_tok_id:
+                masked_id = curr_tok_id[:6] + "..." + curr_tok_id[-4:] if len(curr_tok_id) > 10 else curr_tok_id
+                st.caption(f"Active Key: `{masked_id}`")
+            else:
+                st.caption("⚠️ No Token Configured yet.")
+
     st.markdown("---")
 
     # Fetch currently deployed apps

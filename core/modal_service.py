@@ -64,6 +64,106 @@ class ModalService:
         return None
 
     @classmethod
+    def get_credentials(cls) -> Dict[str, str]:
+        """Returns the currently configured Modal token ID and secret."""
+        from core.config import settings
+        token_id = os.getenv("MODAL_TOKEN_ID", "") or getattr(settings, "MODAL_TOKEN_ID", "")
+        token_secret = os.getenv("MODAL_TOKEN_SECRET", "") or getattr(settings, "MODAL_TOKEN_SECRET", "")
+        return {
+            "token_id": token_id,
+            "token_secret": token_secret,
+            "environment": os.getenv("MODAL_ENVIRONMENT", "main")
+        }
+
+    @classmethod
+    def save_credentials(cls, token_id: str, token_secret: str, environment: str = "main") -> Tuple[bool, str]:
+        """Saves Modal credentials to os.environ, updates .env file, and syncs modal CLI profile."""
+        token_id = token_id.strip()
+        token_secret = token_secret.strip()
+        if not token_id or not token_secret:
+            return False, "Token ID and Token Secret cannot be empty."
+
+        # 1. Update os.environ
+        os.environ["MODAL_TOKEN_ID"] = token_id
+        os.environ["MODAL_TOKEN_SECRET"] = token_secret
+        os.environ["MODAL_ENVIRONMENT"] = environment
+
+        # 2. Update settings in-memory
+        from core.config import settings
+        settings.MODAL_TOKEN_ID = token_id
+        settings.MODAL_TOKEN_SECRET = token_secret
+        settings.MODAL_ENVIRONMENT = environment
+
+        # 3. Update local .env file if it exists
+        try:
+            env_file = settings.BASE_DIR / ".env"
+            lines = []
+            if env_file.exists():
+                with open(env_file, "r") as f:
+                    lines = f.readlines()
+
+            id_set = False
+            sec_set = False
+            env_set = False
+            new_lines = []
+            for line in lines:
+                if line.startswith("MODAL_TOKEN_ID="):
+                    new_lines.append(f"MODAL_TOKEN_ID={token_id}\n")
+                    id_set = True
+                elif line.startswith("MODAL_TOKEN_SECRET="):
+                    new_lines.append(f"MODAL_TOKEN_SECRET={token_secret}\n")
+                    sec_set = True
+                elif line.startswith("MODAL_ENVIRONMENT="):
+                    new_lines.append(f"MODAL_ENVIRONMENT={environment}\n")
+                    env_set = True
+                else:
+                    new_lines.append(line)
+
+            if not id_set:
+                new_lines.append(f"MODAL_TOKEN_ID={token_id}\n")
+            if not sec_set:
+                new_lines.append(f"MODAL_TOKEN_SECRET={token_secret}\n")
+            if not env_set:
+                new_lines.append(f"MODAL_ENVIRONMENT={environment}\n")
+
+            with open(env_file, "w") as f:
+                f.writelines(new_lines)
+        except Exception as e:
+            print(f"Warning: Could not write credentials to .env: {e}")
+
+        # 4. Sync with Modal CLI profile if available
+        cli = cls.get_modal_cli_path()
+        try:
+            res = subprocess.run(
+                [cli, "token", "set", "--token-id", token_id, "--token-secret", token_secret, "--no-verify"],
+                capture_output=True,
+                text=True,
+                timeout=15
+            )
+            if res.returncode == 0:
+                return True, "✅ Modal credentials saved and linked to Modal workspace!"
+        except Exception as e_cli:
+            print(f"CLI token set note: {e_cli}")
+
+        return True, "✅ Modal credentials updated and saved successfully!"
+
+    @classmethod
+    def verify_credentials(cls) -> Tuple[bool, str]:
+        """Tests if Modal is authenticated and accessible with the current credentials."""
+        cli = cls.get_modal_cli_path()
+        try:
+            res = subprocess.run([cli, "app", "list", "--json"], capture_output=True, text=True, timeout=12)
+            if res.returncode == 0:
+                profile = cls.get_current_profile() or "active"
+                return True, f"🟢 Successfully connected to Modal workspace (Profile: `{profile}`)!"
+            else:
+                err = res.stderr.strip() or res.stdout.strip()
+                return False, f"❌ Modal authentication check failed: {err}"
+        except Exception as e:
+            return False, f"❌ Verification error: {str(e)}"
+
+
+    @classmethod
     def list_deployed_apps(cls) -> List[Dict[str, Any]]:
         """Returns a list of all deployed/running Modal apps."""
         cli = cls.get_modal_cli_path()

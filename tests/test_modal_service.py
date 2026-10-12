@@ -15,3 +15,14 @@ def test_modal_service_available_models():
 def test_modal_service_list_apps():
     apps = ModalService.list_deployed_apps()
     assert isinstance(apps, list)
+
+def test_modal_credentials_management():
+    creds = ModalService.get_credentials()
+    assert isinstance(creds, dict)
+    assert "token_id" in creds
+    assert "token_secret" in creds
+
+    # Test saving empty returns error
+    ok, msg = ModalService.save_credentials("", "")
+    assert ok is False
+
