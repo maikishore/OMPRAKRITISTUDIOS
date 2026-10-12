@@ -249,10 +249,28 @@ try:
                         os.remove(tmp_path)
                         return video_data
 
-                    else:
                         # ---------------------------------------------------------
                         # LTX-Video 0.9.x High-Motion Pipeline Flow
                         # ---------------------------------------------------------
+                        clean_neg = (
+                            negative_prompt.strip()
+                            if (negative_prompt and negative_prompt.strip())
+                            else "worst quality, blurry, distorted, jitter, low quality, artifacts, watermark, glitchy, cartoon, illustration, oversaturated, color banding, green tint, neon clipping"
+                        )
+
+                        pipe_kwargs = {
+                            "prompt": prompt,
+                            "negative_prompt": clean_neg,
+                            "width": width,
+                            "height": height,
+                            "num_frames": num_frames,
+                            "num_inference_steps": num_inference_steps,
+                            "guidance_scale": guidance_scale,
+                            "generator": generator
+                        }
+                        if guidance_scale > 3.0:
+                            pipe_kwargs["guidance_rescale"] = 0.7
+
                         if has_image:
                             # IMAGE-TO-VIDEO
                             init_img = Image.open(io.BytesIO(image_bytes)).convert("RGB").resize((width, height))
@@ -267,17 +285,7 @@ try:
                                     print(f"Could not convert t2v to i2v: {e_ipipe}")
 
                             if self.i2v_pipe is not None:
-                                output = self.i2v_pipe(
-                                    image=init_img,
-                                    prompt=prompt,
-                                    negative_prompt=negative_prompt,
-                                    width=width,
-                                    height=height,
-                                    num_frames=num_frames,
-                                    num_inference_steps=num_inference_steps,
-                                    guidance_scale=guidance_scale,
-                                    generator=generator
-                                )
+                                output = self.i2v_pipe(image=init_img, **pipe_kwargs)
                                 video_frames = output.frames[0]
                             else:
                                 raise RuntimeError("Image-to-Video pipeline not available.")
@@ -285,16 +293,7 @@ try:
                         else:
                             # TEXT-TO-VIDEO (Pure text prompt, no conditioning image)
                             if self.t2v_pipe is not None:
-                                output = self.t2v_pipe(
-                                    prompt=prompt,
-                                    negative_prompt=negative_prompt,
-                                    width=width,
-                                    height=height,
-                                    num_frames=num_frames,
-                                    num_inference_steps=num_inference_steps,
-                                    guidance_scale=guidance_scale,
-                                    generator=generator
-                                )
+                                output = self.t2v_pipe(**pipe_kwargs)
                                 video_frames = output.frames[0]
                             elif self.i2v_pipe is not None:
                                 # Fallback: if only i2v_pipe exists, try converting to t2v_pipe first
@@ -302,31 +301,12 @@ try:
                                     from diffusers import LTXPipeline
                                     self.t2v_pipe = LTXPipeline.from_pipe(self.i2v_pipe)
                                     self.t2v_pipe.enable_model_cpu_offload()
-                                    output = self.t2v_pipe(
-                                        prompt=prompt,
-                                        negative_prompt=negative_prompt,
-                                        width=width,
-                                        height=height,
-                                        num_frames=num_frames,
-                                        num_inference_steps=num_inference_steps,
-                                        guidance_scale=guidance_scale,
-                                        generator=generator
-                                    )
+                                    output = self.t2v_pipe(**pipe_kwargs)
                                     video_frames = output.frames[0]
                                 except Exception as e_conv:
                                     print(f"t2v conversion failed ({e_conv}), synthesizing neutral initial frame for i2v...")
                                     blank_canvas = Image.new("RGB", (width, height), color=(30, 30, 35))
-                                    output = self.i2v_pipe(
-                                        image=blank_canvas,
-                                        prompt=prompt,
-                                        negative_prompt=negative_prompt,
-                                        width=width,
-                                        height=height,
-                                        num_frames=num_frames,
-                                        num_inference_steps=num_inference_steps,
-                                        guidance_scale=guidance_scale,
-                                        generator=generator
-                                    )
+                                    output = self.i2v_pipe(image=blank_canvas, **pipe_kwargs)
                                     video_frames = output.frames[0]
                             else:
                                 raise RuntimeError("No video pipeline available.")

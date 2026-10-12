@@ -113,27 +113,102 @@ with tab_t2v:
     t2v_col_left, t2v_col_right = st.columns([1, 1], gap="large")
 
     with t2v_col_left:
-        t2v_presets = [
-            "A cinematic medium close-up of a stylish detective turning head slowly under rain, neon blue reflections, footsteps on wet asphalt, 8k",
-            "An elegant woman in an evening gown entering a lavish ballroom, camera tracking forward smoothly, murmuring guests in background",
-            "A lone traveler walking across a windswept desert at golden hour, sand blowing in breeze, cinematic wide anamorphic",
-            "Cyberpunk motorcycle speeding through a high-tech illuminated tunnel, motion blur, engine roar, dramatic lens flare"
-        ]
-        t2v_sel_preset = st.selectbox("💡 Cinematic Presets", ["(Custom Prompt)"] + t2v_presets, key="t2v_preset_sel")
-        t2v_def_prompt = t2v_sel_preset if t2v_sel_preset != "(Custom Prompt)" else (
-            st.session_state.get("t2v_prompt") or t2v_presets[0]
+        ltx_guide_presets = {
+            "(Custom Prompt)": "",
+            "🪷 Mystical Lotus Bloom (Macro Cinematography)": (
+                "Macro close-up shot of a mystical glowing lotus flower blossoming in a tranquil, enchanted forest pond at dawn. "
+                "Soft golden morning light filters through ancient misty pine trees, illuminating tiny dewdrops glistening on deep green lily pads. "
+                "The delicate translucent pink petals slowly unfurl in smooth continuous motion, opening gracefully to reveal a glowing golden center. "
+                "The camera slowly pushes forward with subtle floating motion toward the blossom. "
+                "Soft ambient forest breeze and delicate water ripples."
+            ),
+            "🕵️ Film Noir Detective (Medium Shot)": (
+                "A cinematic medium close-up of a stylish detective in a wet dark trench coat under cold night rain, neon blue and amber reflections on wet asphalt. "
+                "The detective turns head slowly toward the camera with an intense focused gaze, rainwater dripping from the fedora brim into the misty air. "
+                "The camera tracks forward smoothly at eye level. Muffled city traffic in the distance and the steady patter of rainfall."
+            ),
+            "🏍️ Cyberpunk High-Speed Rider (Tracking Motion)": (
+                "Tracking side-profile shot of a cyberpunk motorcycle speeding through an illuminated futuristic tunnel. "
+                "Vivid turquoise and magenta neon strips streak across the chrome bodywork and aerodynamic helmet. "
+                "The rider leans into a sweeping curve with dynamic motion blur and intense velocity. "
+                "The camera matches speed smoothly alongside the bike. Deep engine roar and resonant tunnel echoes."
+            ),
+            "🏜️ Golden Hour Desert Traveler (Anamorphic Wide)": (
+                "Wide anamorphic shot of a lone traveler walking across windswept desert sand dunes at golden hour. "
+                "Warm gusting breeze lifts fine amber sand into glowing airborne swirls against a dramatic low sun. "
+                "The traveler pauses and gazes out toward the distant horizon as linen robes flutter in the wind. "
+                "The camera glides slowly from right to left in an expansive panoramic arc. Distant howling desert wind."
+            ),
+            "🦊 Red Fox in Snowy Forest (LTX Classic)": (
+                "Cinematic medium shot of a vibrant red fox walking gracefully through a snow-covered birch forest at dawn. "
+                "Crisp morning sunlight filters through frosty branches, casting long blue shadows on powdery white snow. "
+                "The fox steps lightly through the snow, stopping to look alertly toward the camera as its breath forms faint vapor. "
+                "The camera pans slowly alongside the fox. Gentle crunching of snow and soft winter wind."
+            )
+        }
+
+        t2v_sel_preset = st.selectbox(
+            "💡 LTX-2.5 Guide Presets",
+            list(ltx_guide_presets.keys()),
+            key="t2v_preset_sel"
         )
+
+        preset_text = ltx_guide_presets.get(t2v_sel_preset, "")
+        if t2v_sel_preset != "(Custom Prompt)" and preset_text:
+            st.session_state["t2v_prompt"] = preset_text
+
+        t2v_curr_val = st.session_state.get("t2v_prompt") or ltx_guide_presets["🪷 Mystical Lotus Bloom (Macro Cinematography)"]
+
+        c_phead1, c_phead2 = st.columns([2, 1.2])
+        with c_phead1:
+            st.markdown("**Video Scene Prompt (LTX-2.5 Standard)**")
+        with c_phead2:
+            if st.button("🪄 Polish Prompt with AI", use_container_width=True, help="Expands your concept into the 6-element cinematography structure recommended by the Lightricks LTX-2.5 Prompt Guide."):
+                raw_input = st.session_state.get("t2v_prompt_input", "").strip() or t2v_curr_val
+                with st.spinner("Directing prompt with LTX-2.5 Cinematography standards..."):
+                    try:
+                        from ai.llm_client import LLMClient
+                        llm = LLMClient()
+                        sys_prompt = (
+                            "You are an expert Hollywood cinematography director specialized in writing prompts for Lightricks LTX-2.5.\n"
+                            "According to the official LTX-2.5 Prompting Guide (https://ltx.io/blog/ltx-2-5-prompt-guide):\n"
+                            "A production-ready prompt must be a single cohesive, flowing paragraph (3 to 5 sentences) containing:\n"
+                            "1. Shot scale & framing (e.g. macro close-up, medium shot, wide anamorphic).\n"
+                            "2. Scene & lighting (lighting conditions, color palette, surface textures, atmosphere).\n"
+                            "3. Sequential action in present-tense verbs flowing naturally from beginning to end.\n"
+                            "4. Subject physical details and materials.\n"
+                            "5. Specific camera movement relative to subject.\n"
+                            "6. Subtle ambient audio description.\n"
+                            "Return ONLY the enhanced prompt paragraph, with no extra commentary, no quotes, and no bullet points."
+                        )
+                        enhanced = llm.generate_chat(sys_prompt, f"Expand this video concept into an LTX-2.5 prompt: '{raw_input}'")
+                        st.session_state["t2v_prompt"] = enhanced.strip()
+                        st.rerun()
+                    except Exception as e_enh:
+                        # Fallback template enhancement
+                        fallback_enh = (
+                            f"Macro close-up shot of {raw_input}. Soft atmospheric morning lighting illuminates delicate surface textures and fine organic details. "
+                            f"The scene unfolds smoothly in gentle continuous motion as subtle environmental breeze drifts across the frame. "
+                            f"The camera performs a slow, smooth push-in relative to the focal point. Soft ambient natural room tone and gentle breeze."
+                        )
+                        st.session_state["t2v_prompt"] = fallback_enh
+                        st.rerun()
+
         t2v_prompt = st.text_area(
             "Video Scene Prompt",
-            value=t2v_def_prompt,
-            height=90,
+            value=t2v_curr_val,
+            height=110,
             key="t2v_prompt_input",
+            label_visibility="collapsed",
             help="Direct prompt passed cleanly to the video engine without unwanted automatic strings."
         )
+        st.caption("📖 *Tip from Lightricks Guide:* Use single flowing paragraphs describing shot scale, scene lighting, present-tense action, camera motion, and ambient audio.")
+
         t2v_neg_prompt = st.text_input(
             "Negative Prompt",
-            value="worst quality, blurry, distorted, jitter, low quality, artifacts, watermark",
-            key="t2v_neg_prompt_input"
+            value="worst quality, blurry, distorted, jitter, low quality, artifacts, watermark, glitchy, cartoon, illustration, oversaturated, color banding, green tint, neon clipping",
+            key="t2v_neg_prompt_input",
+            help="Negative tokens prevent high-CFG saturation, chromatic burning, and green-tint clipping."
         )
 
         c_t2v_ar, c_t2v_dur = st.columns(2)
@@ -148,7 +223,7 @@ with tab_t2v:
                 ],
                 index=0,
                 key="t2v_ar_sel",
-                help="768x512 is the native training resolution of LTX-Video. Using native resolution produces crisp, sharp video."
+                help="768x512 is the native training resolution of LTX. Using native resolution eliminates blurriness and watercolor artifacts."
             )
             if "768x512" in t2v_ar:
                 t2v_w, t2v_h = 768, 512
@@ -165,28 +240,29 @@ with tab_t2v:
                 options=[25, 49, 73, 97, 121],
                 value=49,
                 format_func=lambda x: f"{x} frames (~{round(x/24, 1)}s)",
-                key="t2v_frames_sel"
+                key="t2v_frames_sel",
+                help="49 frames (~2s) for fast iteration, 97-121 frames (~4-5s) for full cinematic takes."
             )
 
-        with st.expander("⚙️ Advanced Quality & Style Settings", expanded=False):
+        with st.expander("⚙️ Inference Controls (Quality, CFG & Timing)", expanded=False):
             c_q1, c_q2 = st.columns(2)
             with c_q1:
                 t2v_steps = st.slider(
                     "Inference Steps (Clarity)",
                     min_value=20,
                     max_value=50,
-                    value=35,
+                    value=30,
                     step=5,
-                    help="Higher steps (35-45) significantly removes blurriness and improves high-frequency motion details.",
+                    help="30 steps is the official default for speed & sharpness (~35s). 40-50 steps for maximum refinement.",
                     key="t2v_steps_slider"
                 )
                 t2v_guidance = st.slider(
                     "Prompt Guidance (CFG)",
-                    min_value=2.0,
-                    max_value=6.0,
-                    value=3.5,
-                    step=0.5,
-                    help="3.0 - 3.5 provides balanced prompt adherence without over-saturation.",
+                    min_value=1.5,
+                    max_value=5.0,
+                    value=3.0,
+                    step=0.25,
+                    help="Official recommended CFG is 3.0. Keeping CFG between 2.5 and 3.2 prevents over-saturation and green line artifacts.",
                     key="t2v_guidance_slider"
                 )
             with c_q2:
@@ -208,7 +284,7 @@ with tab_t2v:
             if t2v_append_cam and "(None" not in t2v_camera:
                 clean_prompt = f"{clean_prompt}, camera {t2v_camera.lower()}"
 
-            with st.spinner(f"Generating {t2v_frames} frames ({t2v_w}x{t2v_h}, {t2v_steps} steps) on Video Engine..."):
+            with st.spinner(f"Generating {t2v_frames} frames ({t2v_w}x{t2v_h}, {t2v_steps} steps, CFG {t2v_guidance}) on Video Engine..."):
                 try:
                     vid_prov = VideoProviderFactory.get_provider(t2v_provider_choice)
                     t2v_req = VideoGenerationRequest(
